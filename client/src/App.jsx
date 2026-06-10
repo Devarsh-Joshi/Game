@@ -1,0 +1,21 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import LandingPage from './pages/LandingPage';
+import HostDashboard from './pages/HostDashboard';
+import WaitingRoom from './pages/WaitingRoom';
+import GameScreen from './pages/GameScreen';
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/host/:roomId" element={<HostDashboard />} />
+        <Route path="/room/:roomId" element={<WaitingRoom />} />
+        <Route path="/game/:roomId" element={<GameScreen />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;

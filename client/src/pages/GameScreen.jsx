@@ -1,0 +1,626 @@
+import React, { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { socket } from '../socket';
+import * as XLSX from 'xlsx';
+
+export default function GameScreen() {
+  const { roomId } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isHost = location.state?.isHost || false;
+
+  const reconnectState = location.state?.reconnectState;
+  const myPlayerId = localStorage.getItem('playerId');
+
+  const [roundStatus, setRoundStatus] = useState(reconnectState?.roundStatus || 'waiting'); // waiting, active, ended, results, finished
+  const [currentRound, setCurrentRound] = useState(reconnectState?.currentRound || 0);
+  const [totalRounds, setTotalRounds] = useState(reconnectState?.totalRounds || 15);
+  const [currentLetter, setCurrentLetter] = useState(reconnectState?.currentLetter || '?');
+  const [timeLeft, setTimeLeft] = useState(15);
+  
+  const [inputs, setInputs] = useState({
+    name: '',
+    place: '',
+    animal: '',
+    thing: ''
+  });
+  
+  const [isReady, setIsReady] = useState(false);
+  const [submissionProgress, setSubmissionProgress] = useState({ received: 0, total: 0 });
+  const [results, setResults] = useState(reconnectState?.displayAnswers ? {
+    displayAnswers: reconnectState.displayAnswers,
+    leaderboard: reconnectState.leaderboard
+  } : null);
+  
+  const [finalWinners, setFinalWinners] = useState(reconnectState?.winners ? {
+    winners: reconnectState.winners,
+    finalLeaderboard: reconnectState.leaderboard
+  } : null);
+
+  const inputsRef = useRef(inputs);
+  const isReadyRef = useRef(isReady);
+
+  useEffect(() => {
+    inputsRef.current = inputs;
+  }, [inputs]);
+
+  useEffect(() => {
+    isReadyRef.current = isReady;
+  }, [isReady]);
+
+  useEffect(() => {
+    if (!socket.connected) {
+      navigate('/');
+      return;
+    }
+
+    const handleGameEnded = () => {
+      alert("The session has ended.");
+      navigate('/');
+    };
+
+    const handleRoundStarted = (data) => {
+      console.log("Round Started Event Received");
+      setCurrentRound(data.round);
+      if (data.totalRounds) setTotalRounds(data.totalRounds);
+      setCurrentLetter(data.letter);
+      setRoundStatus('active');
+      setTimeLeft(15);
+      setInputs({ name: '', place: '', animal: '', thing: '' });
+      setIsReady(false);
+      setSubmissionProgress({ received: 0, total: 0 });
+    };
+
+    const handleTimerUpdate = (time) => {
+      setTimeLeft(time);
+    };
+
+    const handleRoundEnded = () => {
+      setRoundStatus('ended');
+      if (!isHost) {
+        console.log("Round Ended Event Received. Auto-submitting latest inputs...");
+        socket.emit('submit-answers', { roomCode: roomId, answers: inputsRef.current, submissionType: 'auto' }, (res) => {
+          setIsReady(true);
+        });
+      }
+    };
+
+    const handleSubmissionProgress = (data) => {
+      setSubmissionProgress(data);
+    };
+
+    const handleRoundResults = (data) => {
+      setResults(data);
+      setRoundStatus('results');
+    };
+
+    const handleWinnerAnnounced = (data) => {
+      setFinalWinners(data);
+      setRoundStatus('finished');
+    };
+
+    socket.on('game-ended', handleGameEnded);
+    socket.on('host-disconnected', handleGameEnded);
+    socket.on('round-started', handleRoundStarted);
+    socket.on('next-round', handleRoundStarted);
+    socket.on('game-state-updated', handleRoundStarted);
+    socket.on('timer-update', handleTimerUpdate);
+    socket.on('round-ended', handleRoundEnded);
+    socket.on('submission-progress', handleSubmissionProgress);
+    socket.on('round-results', handleRoundResults);
+    socket.on('winner-announced', handleWinnerAnnounced);
+
+    return () => {
+      socket.off('game-ended', handleGameEnded);
+      socket.off('host-disconnected', handleGameEnded);
+      socket.off('round-started', handleRoundStarted);
+      socket.off('next-round', handleRoundStarted);
+      socket.off('game-state-updated', handleRoundStarted);
+      socket.off('timer-update', handleTimerUpdate);
+      socket.off('round-ended', handleRoundEnded);
+      socket.off('submission-progress', handleSubmissionProgress);
+      socket.off('round-results', handleRoundResults);
+      socket.off('winner-announced', handleWinnerAnnounced);
+    };
+  }, [navigate, isHost, roomId]);
+
+  const handleStartRound = () => {
+    socket.emit('start-round', roomId, (response) => {
+      if (!response.success) {
+        console.error('Failed to start round:', response.error);
+      }
+    });
+  };
+
+  const handleEndGame = () => {
+    socket.emit('end-game', roomId);
+  };
+
+  const handleInputChange = (field, value) => {
+    setInputs(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = (e) => {
+    e?.preventDefault();
+    if (roundStatus !== 'active' || isReady) return;
+    
+    socket.emit('submit-answers', { roomCode: roomId, answers: inputs, submissionType: 'manual' }, (response) => {
+      if (response.success) {
+        setIsReady(true);
+      } else {
+        console.error('Submission failed:', response.error);
+      }
+    });
+  };
+
+  const handleDownloadExcel = () => {
+    if (!finalWinners || !finalWinners.finalLeaderboard) return;
+
+    const data = finalWinners.finalLeaderboard.map((player, index) => {
+      const row = {
+        'Rank': index + 1,
+        'Name': player.name,
+        'Email': player.email || 'N/A',
+        'Total Score': player.totalScore,
+      };
+
+      if (player.roundScores && Array.isArray(player.roundScores)) {
+        player.roundScores.forEach((score, roundIdx) => {
+          row[`Round ${roundIdx + 1} Score`] = score;
+        });
+      }
+
+      row['Total Unique Answers'] = player.uniqueAnswers;
+      row['Average Submission Time'] = player.avgSubmissionTime === Infinity ? 'N/A' : (player.avgSubmissionTime / 1000).toFixed(1) + 's';
+
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Leaderboard');
+
+    const date = new Date().toISOString().split('T')[0];
+    const fileName = `ThinkAndType_Results_${date}.xlsx`;
+
+    XLSX.writeFile(workbook, fileName);
+
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg font-bold shadow-[0_4px_0_#006600] z-50 animate-bounce-in border-4 border-white';
+    toast.innerText = 'Results downloaded successfully';
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.remove();
+    }, 3000);
+  };
+
+  if (roundStatus === 'finished' && finalWinners) {
+    const currentUserIndex = finalWinners.finalLeaderboard.findIndex(p => p.playerId === myPlayerId);
+    const currentUserFinalRank = currentUserIndex !== -1 ? currentUserIndex + 1 : null;
+    const totalPlayers = finalWinners.finalLeaderboard.length;
+
+    return (
+      <div className="min-h-screen flex flex-col p-4 md:p-8 relative">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+          {/* Background handled globally */}
+        </div>
+
+        {/* Header */}
+        <div className="flex flex-col items-center flex-shrink-0 mb-4 animate-fade-in">
+          <h1 className="text-3xl md:text-5xl font-black text-white mb-4 uppercase tracking-tighter drop-shadow-[0_4px_0_var(--accent)] transform -rotate-1">
+            🏆 Think & Type - Final Results
+          </h1>
+          
+          {!isHost && currentUserFinalRank && (
+            <div className="bg-[#150722] border-4 border-[var(--primary)] px-6 py-3 rounded-2xl shadow-[0_4px_0_#ff007f] transform rotate-1 mb-6 animate-bounce-in flex items-center justify-center flex-wrap gap-4 text-center">
+              <div>
+                <span className="text-[#a890c2] font-bold uppercase tracking-widest text-sm block mb-1">Your Final Rank</span>
+                <span className="text-4xl font-black text-white drop-shadow-[0_2px_0_#ff3399]">#{currentUserFinalRank} <span className="text-2xl text-[var(--secondary)]">/ {totalPlayers} Players</span></span>
+              </div>
+              <div className="w-1 h-12 bg-[var(--surface-border)] hidden sm:block mx-2"></div>
+              <div>
+                <span className="text-[#a890c2] font-bold uppercase tracking-widest text-sm block mb-1">Total Score</span>
+                <span className="text-[var(--accent)] font-black text-4xl drop-shadow-[0_2px_0_#000]">{finalWinners.finalLeaderboard[currentUserIndex].totalScore} pts</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-4 justify-center w-full max-w-3xl">
+            {finalWinners.winners[0] && (
+              <div className="bg-[#150722] p-4 flex-1 rounded-xl border-4 border-[var(--accent)] shadow-[0_6px_0_#998d00] transform scale-105 z-10 text-center">
+                <div className="text-4xl mb-1 animate-bounce-in">🏆</div>
+                <div className="text-xs text-[var(--accent)] font-black uppercase tracking-[0.2em] mb-1">1st Place</div>
+                <div className="text-xl font-black text-white truncate">{finalWinners.winners[0].name}</div>
+                <div className="text-[var(--accent)] font-bold text-sm truncate mb-2">{finalWinners.winners[0].email || 'N/A'}</div>
+                <div className="text-white font-black text-2xl bg-[#0a0212] py-1 rounded-lg border-2 border-[var(--accent)] inline-block px-4">{finalWinners.winners[0].totalScore} pts</div>
+              </div>
+            )}
+            {finalWinners.winners[1] && (
+              <div className="bg-[#150722] p-4 flex-1 rounded-xl border-4 border-[var(--secondary)] shadow-[0_6px_0_#008b99] text-center">
+                <div className="text-3xl mb-1 animate-bounce-in" style={{animationDelay: '0.2s'}}>🥈</div>
+                <div className="text-xs text-[var(--secondary)] font-black uppercase tracking-[0.2em] mb-1">2nd Place</div>
+                <div className="text-lg font-black text-white truncate">{finalWinners.winners[1].name}</div>
+                <div className="text-[var(--secondary)] font-bold text-xs truncate mb-2">{finalWinners.winners[1].email || 'N/A'}</div>
+                <div className="text-white font-black text-xl bg-[#0a0212] py-1 rounded-lg border-2 border-[var(--secondary)] inline-block px-4">{finalWinners.winners[1].totalScore} pts</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Main Section */}
+        <div className="flex-1 flex flex-col min-h-0 max-w-4xl w-full mx-auto bg-[#150722] rounded-xl border-4 border-[var(--primary)] shadow-[6px_6px_0_#ff007f] overflow-hidden animate-fade-in" style={{animationDelay: '0.3s'}}>
+          {/* Header row */}
+          <div className="flex bg-[#2a1142] p-3 font-black text-[#a890c2] uppercase tracking-widest border-b-4 border-[var(--primary)] flex-shrink-0 text-xs md:text-sm">
+            <div className="w-12 md:w-16 text-center">Rank</div>
+            <div className="flex-1 px-2">Name</div>
+            <div className="flex-1 hidden sm:block px-2">Email</div>
+            <div className="w-20 md:w-24 text-right pr-2">Score</div>
+          </div>
+          
+          {/* Scrollable list */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2 bg-[#0a0212]">
+            {finalWinners.finalLeaderboard.map((player, idx) => (
+              <div key={player.playerId} className="flex items-center bg-[#150722] p-3 rounded-lg border-2 border-[var(--surface-border)] hover:border-[var(--secondary)] transition-colors">
+                <div className="w-12 md:w-16 text-center font-black text-[#a890c2] text-lg">{idx + 1}.</div>
+                <div className="flex-1 px-2 truncate">
+                  <div className="font-bold text-white text-base md:text-lg">{player.name}</div>
+                  <div className="sm:hidden text-xs text-[#a890c2] truncate">{player.email || 'N/A'}</div>
+                </div>
+                <div className="flex-1 hidden sm:block px-2 truncate text-sm text-[#a890c2] font-medium">{player.email || 'N/A'}</div>
+                <div className="w-20 md:w-24 text-right pr-2 font-black text-[var(--accent)] text-xl drop-shadow-[0_2px_0_#000]">{player.totalScore}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex-shrink-0 mt-4 max-w-4xl w-full mx-auto flex flex-col sm:flex-row justify-center gap-4 animate-fade-in" style={{animationDelay: '0.5s'}}>
+          <button onClick={handleDownloadExcel} className="btn-secondary py-3 px-6 text-sm md:text-base w-full sm:w-auto">Download Results (Excel)</button>
+          <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600] w-full sm:w-auto">Play Again</button>
+          <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#800000] text-white w-full sm:w-auto">Return Home</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 relative">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Background handled globally */}
+      </div>
+
+      <div className="game-panel p-8 md:p-12 max-w-7xl w-full relative z-10 animate-fade-in flex flex-col md:flex-row gap-8 items-start border-[var(--primary)] shadow-[8px_8px_0_#ff007f]">
+        
+        {/* Left Column: Game Info */}
+        <div className="w-full md:w-1/3 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-[var(--surface-border)] pb-8 md:pb-0 md:pr-8 text-center sticky top-8">
+          <div className="mb-4 text-[#a890c2] font-black uppercase tracking-[0.2em] text-sm">
+            {currentRound > 0 ? (isHost ? `Round ${currentRound} / ${totalRounds}` : `Round ${currentRound} of ${totalRounds}`) : 'Waiting to Start'}
+          </div>
+          
+          <div className="w-40 h-40 bg-[#150722] rounded-[2rem] border-4 border-[var(--accent)] flex items-center justify-center mb-8 shadow-inner transform rotate-2 animate-float">
+            <span className="text-8xl font-black text-white drop-shadow-[0_4px_0_#ff3399]">
+              {currentLetter}
+            </span>
+          </div>
+
+          {!isHost && roundStatus === 'active' && (
+            <div className="flex flex-col items-center animate-bounce-in">
+              <div className="text-sm font-bold text-[#00e5ff] uppercase tracking-widest mb-2">Time Remaining</div>
+              <div className={`text-6xl font-black tracking-tighter ${timeLeft <= 5 ? 'text-[var(--primary)] animate-pulse drop-shadow-[0_2px_0_#fff]' : 'text-white drop-shadow-[0_4px_0_#008b99]'}`}>
+                {timeLeft}s
+              </div>
+            </div>
+          )}
+
+          {isHost && (roundStatus === 'waiting' || (roundStatus === 'results' && currentRound < totalRounds)) && (
+            <button 
+              onClick={handleStartRound}
+              className="btn-primary w-full mt-4"
+            >
+              {currentRound === 0 ? 'Start Round' : 'Start Next Round'}
+            </button>
+          )}
+
+          {!isHost && (roundStatus === 'waiting' || roundStatus === 'results') && (
+            <div className="mt-6 text-[#a890c2] font-bold uppercase tracking-widest text-sm text-center">
+              Waiting for host to start the next round...
+            </div>
+          )}
+
+          {isHost && roundStatus === 'active' && (
+            <div className="mt-4 text-[#a890c2] font-bold uppercase tracking-widest flex items-center justify-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[var(--primary)] animate-pulse shadow-[0_0_10px_var(--primary)]"></div>
+              In progress...
+            </div>
+          )}
+
+          {roundStatus === 'ended' && !isHost && (
+            <div className="mt-8 text-[var(--secondary)] font-black uppercase tracking-widest bg-[#150722] px-6 py-4 rounded-xl border-2 border-[var(--secondary)] animate-bounce-in shadow-inner">
+              Calculating...
+            </div>
+          )}
+
+
+
+          {roundStatus === 'finished' && isHost && (
+            <button 
+              onClick={handleEndGame}
+              className="btn-primary w-full mt-6 py-3 bg-red-600 hover:bg-red-500 shadow-red-500/30"
+            >
+              End Game
+            </button>
+          )}
+        </div>
+
+        {/* Right Column */}
+        <div className="w-full md:w-2/3 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
+          {roundStatus === 'results' && results ? (
+            <div className="space-y-8 animate-fade-in text-left">
+              {(() => {
+                const leaderboard = results.leaderboard;
+                const top5 = leaderboard.slice(0, 5);
+                const cuIdx = leaderboard.findIndex(p => p.playerId === myPlayerId);
+                let neighbors = [];
+                if (cuIdx !== -1) {
+                  const startIdx = Math.max(0, cuIdx - 1);
+                  const endIdx = Math.min(leaderboard.length - 1, cuIdx + 1);
+                  for (let i = startIdx; i <= endIdx; i++) {
+                    neighbors.push({
+                      ...leaderboard[i],
+                      actualRank: i + 1,
+                      isMe: i === cuIdx
+                    });
+                  }
+                }
+
+                return (
+                  <div className="space-y-8">
+                    {/* Insights Row */}
+                    <div className="flex flex-col lg:flex-row gap-6">
+                      
+                      {/* Top Players */}
+                      <div className="game-panel p-6 border-[var(--accent)] shadow-[8px_8px_0_#998d00] flex-1">
+                        <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-4 border-b-2 border-[#2a1142] pb-2">Top Players</h3>
+                        <div className="space-y-2">
+                          {top5.map((p, i) => (
+                            <div key={p.playerId} className={`flex items-center justify-between p-2 rounded-lg ${p.playerId === myPlayerId ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
+                              <div className="flex items-center gap-3">
+                                <span className="w-8 text-center font-black text-lg">
+                                  {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-[#a890c2]">#{i + 1}</span>}
+                                </span>
+                                <span className={`font-bold truncate ${p.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                  {p.name} {p.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-0.5 rounded ml-2">(YOU)</span>}
+                                </span>
+                              </div>
+                              <span className="font-black text-[var(--accent)]">{p.totalScore}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Your Position (Only if not host and found) */}
+                      {!isHost && cuIdx !== -1 && (
+                        <div className="game-panel p-6 border-[var(--secondary)] shadow-[8px_8px_0_#00e5ff] flex-1 flex flex-col">
+                          <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-4 border-b-2 border-[#2a1142] pb-2">Your Position</h3>
+                          <div className="bg-[#150722] border-2 border-[var(--primary)] rounded-xl p-4 text-center mb-4 relative overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-r from-[var(--primary)] to-[var(--secondary)] opacity-10"></div>
+                            <div className="text-[#a890c2] font-bold uppercase tracking-widest text-xs mb-1">Current Rank</div>
+                            <div className="text-5xl font-black text-white drop-shadow-[0_2px_0_#ff3399]">#{cuIdx + 1}</div>
+                            <div className="text-[var(--accent)] font-black text-2xl mt-2">{leaderboard[cuIdx].totalScore} pts</div>
+                          </div>
+                          
+                          <div className="space-y-2 mt-auto">
+                            <div className="text-xs font-bold text-[#a890c2] uppercase tracking-widest mb-2">Neighbouring Players</div>
+                            {neighbors.map((p) => (
+                              <div key={p.playerId} className={`flex items-center justify-between p-2 rounded-lg ${p.isMe ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[#a890c2] font-black w-8 text-center">#{p.actualRank}</span>
+                                  <span className={`font-bold truncate ${p.isMe ? 'text-[var(--primary)]' : 'text-white'}`}>{p.name} {p.isMe && <span className="text-xs bg-[var(--primary)] text-white px-1.5 py-0.5 rounded ml-1">(YOU)</span>}</span>
+                                </div>
+                                <span className="font-black text-[var(--accent)] text-sm">{p.totalScore}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Full Leaderboard */}
+                    <div className="game-panel p-6 border-[var(--primary)] shadow-[8px_8px_0_#ff007f]">
+                      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <h2 className="text-2xl font-black text-white uppercase tracking-tighter">
+                          Full Leaderboard
+                        </h2>
+                        <div className="text-[var(--secondary)] font-bold uppercase tracking-widest text-sm bg-[#150722] px-4 py-2 rounded-xl border-2 border-[var(--surface-border)] shadow-inner">
+                          Current Round: {currentRound} | Total Rounds: {totalRounds}
+                        </div>
+                      </div>
+                      
+                      {/* Mobile Cards ( < md ) */}
+                      <div className="md:hidden space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+                        {leaderboard.map((player, idx) => (
+                          <div key={player.playerId} className={`flex flex-col p-4 rounded-xl border-2 shadow-inner ${player.playerId === myPlayerId ? 'bg-[#3d1a5c] border-[var(--primary)] shadow-[0_0_15px_#ff007f]' : 'bg-[#150722] border-[var(--surface-border)]'}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <span className="text-[#a890c2] font-black text-2xl">#{idx + 1}</span>
+                                <span className={`font-bold text-xl truncate ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                  {player.name} {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2">(YOU)</span>}
+                                </span>
+                              </div>
+                              <span className="text-[var(--primary)] font-black text-sm bg-[#2a1142] px-3 py-1 rounded-lg shadow-inner">+{player.roundScore}</span>
+                            </div>
+                            <div className="flex items-center justify-between border-t border-[#2a1142] pt-3">
+                              <span className="text-xs font-bold text-[#a890c2] uppercase tracking-widest">Total Score</span>
+                              <span className="text-3xl font-black text-[var(--accent)] drop-shadow-[0_2px_0_#000]">{player.totalScore}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Desktop Table ( >= md ) */}
+                      <div className="hidden md:block w-full overflow-hidden rounded-xl border-2 border-[var(--surface-border)] shadow-inner bg-[#150722] max-h-[50vh] overflow-y-auto custom-scrollbar">
+                        <table className="w-full text-left border-collapse">
+                          <thead className="bg-[#2a1142] border-b-2 border-[var(--surface-border)] sticky top-0 z-10">
+                            <tr>
+                              <th className="p-4 text-[#a890c2] font-black uppercase tracking-widest text-xs w-16 text-center">Rank</th>
+                              <th className="p-4 text-[#a890c2] font-black uppercase tracking-widest text-xs">Player</th>
+                              <th className="p-4 text-[#a890c2] font-black uppercase tracking-widest text-xs text-center w-24">Round</th>
+                              <th className="p-4 text-[#a890c2] font-black uppercase tracking-widest text-xs text-right w-32">Total Score</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--surface-border)]">
+                            {leaderboard.map((player, idx) => (
+                              <tr key={player.playerId} className={`transition-colors ${player.playerId === myPlayerId ? 'bg-[#3d1a5c] shadow-[inset_4px_0_0_#ff007f]' : 'hover:bg-[#1a0929]'}`}>
+                                <td className="p-4 text-center text-[#a890c2] font-black text-lg">#{idx + 1}</td>
+                                <td className={`p-4 font-bold text-lg truncate max-w-[150px] ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                  {player.name} {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2">(YOU)</span>}
+                                </td>
+                                <td className="p-4 text-center">
+                                  <span className="text-[var(--primary)] font-black text-sm bg-[#2a1142] px-2 py-1 rounded-lg inline-block shadow-inner">+{player.roundScore}</span>
+                                </td>
+                                <td className="p-4 text-right text-2xl font-black text-[var(--accent)] drop-shadow-[0_2px_0_#000]">{player.totalScore}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+                {['name', 'place', 'animal', 'thing'].map((cat) => (
+                  <div key={cat} className="game-panel p-5 border-[var(--primary)] shadow-[6px_6px_0_#ff007f]">
+                    <h3 className="text-xl font-black text-[var(--accent)] capitalize mb-4 border-b-2 border-[var(--surface-border)] pb-3 uppercase tracking-widest">{cat}</h3>
+                    <ul className="space-y-3">
+                      {results.displayAnswers[cat].length === 0 ? (
+                        <li className="text-[#a890c2] text-sm font-bold uppercase tracking-widest bg-[#150722] p-4 rounded-xl border-2 border-[var(--surface-border)] shadow-inner text-center">
+                          No valid answers
+                        </li>
+                      ) : (
+                        results.displayAnswers[cat].map((ans, idx) => (
+                          <li key={idx} className={`flex items-center justify-between text-lg bg-[#150722] p-3 rounded-xl border-2 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
+                            <span className="text-white font-medium flex-1 min-w-0 pr-2 truncate">
+                              <span className="font-black text-[var(--secondary)] mr-2">{ans.playerName}:</span>
+                              <span className={`text-lg whitespace-nowrap ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>{ans.answer}</span>
+                              {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-2 inline-block">❌ Invalid</span>}
+                            </span>
+                            <span className={`font-black text-xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                              +{ans.points}
+                            </span>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : isHost ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <h2 className="text-4xl font-black text-white mb-4 uppercase tracking-tighter">Host Controls</h2>
+              <p className="text-[#a890c2] font-medium text-lg mb-12 max-w-md">
+                You are managing the game. Players will see the timer and input fields on their screens.
+              </p>
+              
+              {roundStatus === 'active' && (
+                <div className="flex flex-col sm:flex-row gap-6 w-full max-w-xl">
+                  <div className="game-panel border-[var(--secondary)] shadow-[8px_8px_0_#00e5ff] p-8 flex-1 transform -rotate-2">
+                    <div className="text-sm font-bold text-[#00e5ff] uppercase tracking-widest mb-4">Time Left</div>
+                    <div className={`text-7xl font-black tracking-tighter ${timeLeft <= 5 ? 'text-[var(--primary)] animate-pulse' : 'text-white'}`}>
+                      {timeLeft}s
+                    </div>
+                  </div>
+                  
+                  <div className="game-panel border-[var(--accent)] shadow-[8px_8px_0_#998d00] p-8 flex-1 transform rotate-2">
+                    <div className="text-sm font-bold text-[var(--accent)] uppercase tracking-widest mb-4">Submissions</div>
+                    <div className="text-6xl font-black text-white flex items-baseline justify-center gap-2">
+                      <span className="text-white">{submissionProgress.received}</span>
+                      <span className="text-2xl text-[#a890c2]">/ {submissionProgress.total}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {roundStatus === 'active' && currentLetter !== '?' && (
+                <div className="mb-8 bg-[#150722] border-4 border-[var(--accent)] text-white px-6 py-4 rounded-xl text-center shadow-inner animate-bounce-in transform -rotate-1">
+                  <span className="font-bold text-xl uppercase tracking-widest text-[#a890c2]">Words starting with:</span> <span className="text-[var(--accent)] font-black text-4xl ml-2 drop-shadow-[0_2px_0_#000]">{currentLetter}</span>
+                </div>
+              )}
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-bold text-[#00e5ff] uppercase tracking-wider mb-2">Name</label>
+                  <input 
+                    type="text" 
+                    value={inputs.name}
+                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    disabled={roundStatus !== 'active'}
+                    className="input-field disabled:opacity-50 disabled:cursor-not-allowed"
+                    placeholder="Enter Name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Place</label>
+                  <input 
+                    type="text" 
+                    value={inputs.place}
+                    onChange={(e) => handleInputChange('place', e.target.value)}
+                    disabled={roundStatus !== 'active'}
+                    className="input-field disabled:opacity-50 disabled:cursor-not-allowed"
+                    placeholder="Enter Place"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[var(--accent)] uppercase tracking-wider mb-2">Animal</label>
+                  <input 
+                    type="text" 
+                    value={inputs.animal}
+                    onChange={(e) => handleInputChange('animal', e.target.value)}
+                    disabled={roundStatus !== 'active'}
+                    className="input-field disabled:opacity-50 disabled:cursor-not-allowed"
+                    placeholder="Enter Animal"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#a890c2] uppercase tracking-wider mb-2">Thing</label>
+                  <input 
+                    type="text" 
+                    value={inputs.thing}
+                    onChange={(e) => handleInputChange('thing', e.target.value)}
+                    disabled={roundStatus !== 'active'}
+                    className="input-field disabled:opacity-50 disabled:cursor-not-allowed"
+                    placeholder="Enter Thing"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-6 space-y-4">
+                {isReady && (
+                  <div className="text-[var(--accent)] font-bold text-center bg-[#150722] py-3 rounded-xl border-2 border-[var(--accent)] shadow-inner animate-bounce-in text-sm">
+                    You can still edit your answers until time runs out.
+                  </div>
+                )}
+                <button 
+                  type="submit"
+                  disabled={roundStatus !== 'active' || isReady}
+                  className={`w-full ${isReady ? 'bg-green-600 cursor-not-allowed text-white' : 'btn-primary'} py-5 font-black rounded-xl uppercase tracking-widest transition-all`}
+                >
+                  {roundStatus === 'ended' 
+                    ? 'Round Over' 
+                    : isReady 
+                      ? '✓ Ready' 
+                      : "✓ I'm Ready"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+        
+      </div>
+    </div>
+  );
+}
