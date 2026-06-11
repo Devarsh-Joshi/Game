@@ -15,23 +15,39 @@ export default function GameScreen() {
   const [roundStatus, setRoundStatus] = useState(reconnectState?.roundStatus || 'waiting'); // waiting, active, ended, results, finished
   const [currentRound, setCurrentRound] = useState(reconnectState?.currentRound || 0);
   const [totalRounds, setTotalRounds] = useState(reconnectState?.totalRounds || 15);
+  const [roundDuration, setRoundDuration] = useState(reconnectState?.roundDuration || 15);
   const [currentLetter, setCurrentLetter] = useState(reconnectState?.currentLetter || '?');
-  const [timeLeft, setTimeLeft] = useState(15);
-  
+  const [timeLeft, setTimeLeft] = useState(reconnectState?.roundDuration || 15);
+
   const [inputs, setInputs] = useState({
     name: '',
     place: '',
     animal: '',
     thing: ''
   });
-  
+  const [showRestartModal, setShowRestartModal] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [restartSettings, setRestartSettings] = useState({ totalRounds: reconnectState?.totalRounds || 15, roundDuration: reconnectState?.roundDuration || 15 });
+
+  // Play Again Voting State
+  const [votingActive, setVotingActive] = useState(false);
+  const [voteTimeLeft, setVoteTimeLeft] = useState(10);
+  const [voteStats, setVoteStats] = useState({ yesCount: 0, noCount: 0, totalCount: 0 });
+  const [hasVoted, setHasVoted] = useState(false);
+
+  const [showPlayAgainSettings, setShowPlayAgainSettings] = useState(false);
+  const [playAgainSettingsMode, setPlayAgainSettingsMode] = useState('confirm'); // 'confirm' or 'edit'
+  const [waitingForHostSettings, setWaitingForHostSettings] = useState(false);
+
+  const [highlightLetter, setHighlightLetter] = useState(false);
+
   const [isReady, setIsReady] = useState(false);
   const [submissionProgress, setSubmissionProgress] = useState({ received: 0, total: 0 });
   const [results, setResults] = useState(reconnectState?.displayAnswers ? {
     displayAnswers: reconnectState.displayAnswers,
     leaderboard: reconnectState.leaderboard
   } : null);
-  
+
   const [finalWinners, setFinalWinners] = useState(reconnectState?.winners ? {
     winners: reconnectState.winners,
     finalLeaderboard: reconnectState.leaderboard
@@ -48,6 +64,16 @@ export default function GameScreen() {
     isReadyRef.current = isReady;
   }, [isReady]);
 
+  // Auto scroll to top and pulse letter when a new round starts
+  useEffect(() => {
+    if (currentRound > 0 && roundStatus === 'active') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setHighlightLetter(true);
+      const timer = setTimeout(() => setHighlightLetter(false), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [currentRound, roundStatus]);
+
   useEffect(() => {
     if (!socket.connected) {
       navigate('/');
@@ -63,9 +89,13 @@ export default function GameScreen() {
       console.log("Round Started Event Received");
       setCurrentRound(data.round);
       if (data.totalRounds) setTotalRounds(data.totalRounds);
+      if (data.roundDuration) {
+        setRoundDuration(data.roundDuration);
+        setRestartSettings(prev => ({ ...prev, roundDuration: data.roundDuration }));
+      }
       setCurrentLetter(data.letter);
       setRoundStatus('active');
-      setTimeLeft(15);
+      setTimeLeft(data.roundDuration || 15);
       setInputs({ name: '', place: '', animal: '', thing: '' });
       setIsReady(false);
       setSubmissionProgress({ received: 0, total: 0 });
@@ -95,8 +125,56 @@ export default function GameScreen() {
     };
 
     const handleWinnerAnnounced = (data) => {
-      setFinalWinners(data);
       setRoundStatus('finished');
+      setFinalWinners(data);
+    };
+
+    const handleGameRestarted = () => {
+      setRoundStatus('waiting');
+      setCurrentRound(0);
+      setCurrentLetter('?');
+      setTimeLeft(roundDuration || 15);
+      setResults(null);
+      setFinalWinners(null);
+      setInputs({ name: '', place: '', animal: '', thing: '' });
+      setIsReady(false);
+      setShowRestartModal(false);
+      setShowEndModal(false);
+      setVotingActive(false);
+      setHasVoted(false);
+      setShowPlayAgainSettings(false);
+      setWaitingForHostSettings(false);
+    };
+
+    const handlePlayAgainVoteStarted = () => {
+      setVotingActive(true);
+      setVoteTimeLeft(10);
+      setVoteStats({ yesCount: isHost ? 1 : 0, noCount: 0, totalCount: 0 });
+      setHasVoted(isHost); // Host automatically voted YES
+    };
+
+    const handlePlayAgainVoteUpdate = (data) => {
+      setVoteTimeLeft(data.timeLeft);
+      setVoteStats({ yesCount: data.yesCount, noCount: data.noCount, totalCount: data.totalCount });
+    };
+
+    const handlePlayAgainVoteEnded = (data) => {
+      const myPlayerId = localStorage.getItem('playerId');
+      if (data.yesPlayers.includes(myPlayerId)) {
+        setVotingActive(false);
+        // I voted yes, reset game state and stay in room
+        if (isHost) {
+          setRestartSettings({ totalRounds: data.totalRounds || 15, roundDuration: data.roundDuration || 15 });
+          setPlayAgainSettingsMode('confirm');
+          setShowPlayAgainSettings(true);
+        } else {
+          setWaitingForHostSettings(true);
+        }
+      } else {
+        // I voted no or didn't vote
+        localStorage.clear();
+        window.location.href = '/';
+      }
     };
 
     socket.on('game-ended', handleGameEnded);
@@ -109,6 +187,10 @@ export default function GameScreen() {
     socket.on('submission-progress', handleSubmissionProgress);
     socket.on('round-results', handleRoundResults);
     socket.on('winner-announced', handleWinnerAnnounced);
+    socket.on('game-restarted', handleGameRestarted);
+    socket.on('play-again-vote-started', handlePlayAgainVoteStarted);
+    socket.on('play-again-vote-update', handlePlayAgainVoteUpdate);
+    socket.on('play-again-vote-ended', handlePlayAgainVoteEnded);
 
     return () => {
       socket.off('game-ended', handleGameEnded);
@@ -121,6 +203,10 @@ export default function GameScreen() {
       socket.off('submission-progress', handleSubmissionProgress);
       socket.off('round-results', handleRoundResults);
       socket.off('winner-announced', handleWinnerAnnounced);
+      socket.off('game-restarted', handleGameRestarted);
+      socket.off('play-again-vote-started', handlePlayAgainVoteStarted);
+      socket.off('play-again-vote-update', handlePlayAgainVoteUpdate);
+      socket.off('play-again-vote-ended', handlePlayAgainVoteEnded);
     };
   }, [navigate, isHost, roomId]);
 
@@ -132,8 +218,33 @@ export default function GameScreen() {
     });
   };
 
+  const handleRestartGame = () => {
+    socket.emit('restart-game', { roomCode: roomId, playerId: localStorage.getItem('playerId'), totalRounds: restartSettings.totalRounds, roundDuration: restartSettings.roundDuration });
+    setShowRestartModal(false);
+  };
+
   const handleEndGame = () => {
     socket.emit('end-game', roomId);
+    setShowEndModal(false);
+  };
+
+  const handleStartPlayAgainVote = () => {
+    socket.emit('start-play-again-vote', { roomCode: roomId, playerId: localStorage.getItem('playerId') });
+  };
+
+  const handleCastVote = () => {
+    setHasVoted(true);
+    socket.emit('play-again-vote', { roomCode: roomId, vote: 'yes', playerId: localStorage.getItem('playerId') });
+  };
+
+  const handleFinalizePlayAgain = () => {
+    socket.emit('finalize-play-again', {
+      roomCode: roomId,
+      playerId: localStorage.getItem('playerId'),
+      totalRounds: restartSettings.totalRounds,
+      roundDuration: restartSettings.roundDuration
+    });
+    setShowPlayAgainSettings(false);
   };
 
   const handleInputChange = (field, value) => {
@@ -143,7 +254,7 @@ export default function GameScreen() {
   const handleSubmit = (e) => {
     e?.preventDefault();
     if (roundStatus !== 'active' || isReady) return;
-    
+
     socket.emit('submit-answers', { roomCode: roomId, answers: inputs, submissionType: 'manual' }, (response) => {
       if (response.success) {
         setIsReady(true);
@@ -159,8 +270,10 @@ export default function GameScreen() {
     const data = finalWinners.finalLeaderboard.map((player, index) => {
       const row = {
         'Rank': index + 1,
-        'Name': player.name,
-        'Email': player.email || 'N/A',
+        'Employee ID': player.employeeId,
+        'First Name': player.firstName,
+        'Last Name': player.lastName,
+        'Full Name': player.fullName,
         'Total Score': player.totalScore,
       };
 
@@ -210,7 +323,7 @@ export default function GameScreen() {
           <h1 className="text-3xl md:text-5xl font-black text-white mb-4 uppercase tracking-tighter drop-shadow-[0_4px_0_var(--accent)] transform -rotate-1">
             🏆 Think & Type - Final Results
           </h1>
-          
+
           {!isHost && currentUserFinalRank && (
             <div className="bg-[#150722] border-4 border-[var(--primary)] px-6 py-3 rounded-2xl shadow-[0_4px_0_#ff007f] transform rotate-1 mb-6 animate-bounce-in flex items-center justify-center flex-wrap gap-4 text-center">
               <div>
@@ -230,17 +343,17 @@ export default function GameScreen() {
               <div className="bg-[#150722] p-4 flex-1 rounded-xl border-4 border-[var(--accent)] shadow-[0_6px_0_#998d00] transform scale-105 z-10 text-center">
                 <div className="text-4xl mb-1 animate-bounce-in">🏆</div>
                 <div className="text-xs text-[var(--accent)] font-black uppercase tracking-[0.2em] mb-1">1st Place</div>
-                <div className="text-xl font-black text-white truncate">{finalWinners.winners[0].name}</div>
-                <div className="text-[var(--accent)] font-bold text-sm truncate mb-2">{finalWinners.winners[0].email || 'N/A'}</div>
+                <div className="text-xl font-black text-white truncate">{finalWinners.winners[0].fullName}</div>
+                <div className="text-[var(--accent)] font-bold text-sm truncate mb-2">{finalWinners.winners[0].employeeId || 'N/A'}</div>
                 <div className="text-white font-black text-2xl bg-[#0a0212] py-1 rounded-lg border-2 border-[var(--accent)] inline-block px-4">{finalWinners.winners[0].totalScore} pts</div>
               </div>
             )}
             {finalWinners.winners[1] && (
               <div className="bg-[#150722] p-4 flex-1 rounded-xl border-4 border-[var(--secondary)] shadow-[0_6px_0_#008b99] text-center">
-                <div className="text-3xl mb-1 animate-bounce-in" style={{animationDelay: '0.2s'}}>🥈</div>
+                <div className="text-3xl mb-1 animate-bounce-in" style={{ animationDelay: '0.2s' }}>🥈</div>
                 <div className="text-xs text-[var(--secondary)] font-black uppercase tracking-[0.2em] mb-1">2nd Place</div>
-                <div className="text-lg font-black text-white truncate">{finalWinners.winners[1].name}</div>
-                <div className="text-[var(--secondary)] font-bold text-xs truncate mb-2">{finalWinners.winners[1].email || 'N/A'}</div>
+                <div className="text-lg font-black text-white truncate">{finalWinners.winners[1].fullName}</div>
+                <div className="text-[var(--secondary)] font-bold text-xs truncate mb-2">{finalWinners.winners[1].employeeId || 'N/A'}</div>
                 <div className="text-white font-black text-xl bg-[#0a0212] py-1 rounded-lg border-2 border-[var(--secondary)] inline-block px-4">{finalWinners.winners[1].totalScore} pts</div>
               </div>
             )}
@@ -248,25 +361,25 @@ export default function GameScreen() {
         </div>
 
         {/* Main Section */}
-        <div className="flex-1 flex flex-col min-h-0 max-w-4xl w-full mx-auto bg-[#150722] rounded-xl border-4 border-[var(--primary)] shadow-[6px_6px_0_#ff007f] overflow-hidden animate-fade-in" style={{animationDelay: '0.3s'}}>
+        <div className="flex-1 flex flex-col md:min-h-0 max-w-4xl w-full mx-auto bg-[#150722] rounded-xl border-4 border-[var(--primary)] shadow-[6px_6px_0_#ff007f] md:overflow-hidden animate-fade-in" style={{ animationDelay: '0.3s' }}>
           {/* Header row */}
           <div className="flex bg-[#2a1142] p-3 font-black text-[#a890c2] uppercase tracking-widest border-b-4 border-[var(--primary)] flex-shrink-0 text-xs md:text-sm">
             <div className="w-12 md:w-16 text-center">Rank</div>
             <div className="flex-1 px-2">Name</div>
-            <div className="flex-1 hidden sm:block px-2">Email</div>
+            <div className="flex-1 hidden sm:block px-2">Employee ID</div>
             <div className="w-20 md:w-24 text-right pr-2">Score</div>
           </div>
-          
+
           {/* Scrollable list */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2 bg-[#0a0212]">
+          <div className="flex-1 md:overflow-y-auto md:custom-scrollbar p-2 space-y-2 bg-[#0a0212]">
             {finalWinners.finalLeaderboard.map((player, idx) => (
               <div key={player.playerId} className="flex items-center bg-[#150722] p-3 rounded-lg border-2 border-[var(--surface-border)] hover:border-[var(--secondary)] transition-colors">
                 <div className="w-12 md:w-16 text-center font-black text-[#a890c2] text-lg">{idx + 1}.</div>
-                <div className="flex-1 px-2 truncate">
-                  <div className="font-bold text-white text-base md:text-lg">{player.name}</div>
-                  <div className="sm:hidden text-xs text-[#a890c2] truncate">{player.email || 'N/A'}</div>
+                <div className="flex-1 px-2 break-words overflow-hidden">
+                  <div className="font-bold text-white text-base md:text-lg">{player.fullName}</div>
+                  <div className="sm:hidden text-xs text-[#a890c2] truncate">{player.employeeId || 'N/A'}</div>
                 </div>
-                <div className="flex-1 hidden sm:block px-2 truncate text-sm text-[#a890c2] font-medium">{player.email || 'N/A'}</div>
+                <div className="flex-1 hidden sm:block px-2 truncate text-sm text-[#a890c2] font-medium">{player.employeeId || 'N/A'}</div>
                 <div className="w-20 md:w-24 text-right pr-2 font-black text-[var(--accent)] text-xl drop-shadow-[0_2px_0_#000]">{player.totalScore}</div>
               </div>
             ))}
@@ -274,9 +387,11 @@ export default function GameScreen() {
         </div>
 
         {/* Footer Actions */}
-        <div className="flex-shrink-0 mt-4 max-w-4xl w-full mx-auto flex flex-col sm:flex-row justify-center gap-4 animate-fade-in" style={{animationDelay: '0.5s'}}>
+        <div className="flex-shrink-0 mt-4 max-w-4xl w-full mx-auto flex flex-col sm:flex-row justify-center gap-4 animate-fade-in" style={{ animationDelay: '0.5s' }}>
           <button onClick={handleDownloadExcel} className="btn-secondary py-3 px-6 text-sm md:text-base w-full sm:w-auto">Download Results (Excel)</button>
-          <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600] w-full sm:w-auto">Play Again</button>
+          {isHost && (
+            <button onClick={handleStartPlayAgainVote} className="btn-primary py-3 px-6 text-sm md:text-base bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600] w-full sm:w-auto">Play Again</button>
+          )}
           <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#800000] text-white w-full sm:w-auto">Return Home</button>
         </div>
       </div>
@@ -290,14 +405,20 @@ export default function GameScreen() {
       </div>
 
       <div className="game-panel p-8 md:p-12 max-w-7xl w-full relative z-10 animate-fade-in flex flex-col md:flex-row gap-8 items-start border-[var(--primary)] shadow-[8px_8px_0_#ff007f]">
-        
+
         {/* Left Column: Game Info */}
         <div className="w-full md:w-1/3 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-[var(--surface-border)] pb-8 md:pb-0 md:pr-8 text-center sticky top-8">
           <div className="mb-4 text-[#a890c2] font-black uppercase tracking-[0.2em] text-sm">
             {currentRound > 0 ? (isHost ? `Round ${currentRound} / ${totalRounds}` : `Round ${currentRound} of ${totalRounds}`) : 'Waiting to Start'}
           </div>
-          
-          <div className="w-40 h-40 bg-[#150722] rounded-[2rem] border-4 border-[var(--accent)] flex items-center justify-center mb-8 shadow-inner transform rotate-2 animate-float">
+
+          {currentRound > 0 && (
+            <div className="mb-4 text-[var(--accent)] font-bold text-xs uppercase tracking-widest">
+              Time Per Round: {roundDuration}s
+            </div>
+          )}
+
+          <div className={`w-40 h-40 bg-[#150722] rounded-[2rem] border-4 ${highlightLetter ? 'border-[#ff007f] shadow-[0_0_30px_#ff007f] scale-110' : 'border-[var(--accent)] shadow-inner'} transition-all duration-300 flex items-center justify-center mb-8 transform rotate-2 animate-float`}>
             <span className="text-8xl font-black text-white drop-shadow-[0_4px_0_#ff3399]">
               {currentLetter}
             </span>
@@ -313,12 +434,31 @@ export default function GameScreen() {
           )}
 
           {isHost && (roundStatus === 'waiting' || (roundStatus === 'results' && currentRound < totalRounds)) && (
-            <button 
-              onClick={handleStartRound}
-              className="btn-primary w-full mt-4"
-            >
-              {currentRound === 0 ? 'Start Round' : 'Start Next Round'}
-            </button>
+            <div className="flex flex-col flex-wrap gap-4 w-full mt-4">
+              <button
+                onClick={handleStartRound}
+                className="btn-primary w-full"
+              >
+                {currentRound === 0 ? 'Start Round' : 'Start Next Round'}
+              </button>
+
+              {currentRound > 0 && (
+                <div className="flex flex-col 2xl:flex-row gap-4 w-full">
+                  <button
+                    onClick={() => setShowRestartModal(true)}
+                    className="btn-primary flex-1 bg-orange-500 hover:bg-orange-400 shadow-[0_4px_0_#cc6600]"
+                  >
+                    Restart Game
+                  </button>
+                  <button
+                    onClick={() => setShowEndModal(true)}
+                    className="btn-primary flex-1 bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#990000] text-white"
+                  >
+                    End Game
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {!isHost && (roundStatus === 'waiting' || roundStatus === 'results') && (
@@ -337,23 +477,38 @@ export default function GameScreen() {
           {roundStatus === 'ended' && !isHost && (
             <div className="mt-8 text-[var(--secondary)] font-black uppercase tracking-widest bg-[#150722] px-6 py-4 rounded-xl border-2 border-[var(--secondary)] animate-bounce-in shadow-inner">
               Calculating...
+
+            </div>
+          )}
+
+          {waitingForHostSettings && !isHost && (
+            <div className="mt-8 text-[#a890c2] font-black uppercase tracking-widest bg-[#150722] px-6 py-4 rounded-xl border-2 border-[var(--surface-border)] animate-pulse shadow-inner text-center">
+              Waiting for host to finalize settings...
             </div>
           )}
 
 
 
           {roundStatus === 'finished' && isHost && (
-            <button 
-              onClick={handleEndGame}
-              className="btn-primary w-full mt-6 py-3 bg-red-600 hover:bg-red-500 shadow-red-500/30"
-            >
-              End Game
-            </button>
+            <div className="flex flex-col 2xl:flex-row gap-4 w-full mt-6">
+              <button
+                onClick={() => setShowRestartModal(true)}
+                className="btn-primary flex-1 bg-orange-500 hover:bg-orange-400 shadow-[0_4px_0_#cc6600]"
+              >
+                Restart Game
+              </button>
+              <button
+                onClick={() => setShowEndModal(true)}
+                className="btn-primary flex-1 bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#990000]"
+              >
+                End Game
+              </button>
+            </div>
           )}
         </div>
 
         {/* Right Column */}
-        <div className="w-full md:w-2/3 max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
+        <div className="w-full md:w-2/3 md:max-h-[80vh] md:overflow-y-auto md:pr-2 md:custom-scrollbar">
           {roundStatus === 'results' && results ? (
             <div className="space-y-8 animate-fade-in text-left">
               {(() => {
@@ -377,7 +532,7 @@ export default function GameScreen() {
                   <div className="space-y-8">
                     {/* Insights Row */}
                     <div className="flex flex-col lg:flex-row gap-6">
-                      
+
                       {/* Top Players */}
                       <div className="game-panel p-6 border-[var(--accent)] shadow-[8px_8px_0_#998d00] flex-1">
                         <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-4 border-b-2 border-[#2a1142] pb-2">Top Players</h3>
@@ -388,8 +543,8 @@ export default function GameScreen() {
                                 <span className="w-8 text-center font-black text-lg">
                                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-[#a890c2]">#{i + 1}</span>}
                                 </span>
-                                <span className={`font-bold truncate ${p.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
-                                  {p.name} {p.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-0.5 rounded ml-2">(YOU)</span>}
+                                <span className={`font-bold break-words overflow-hidden ${p.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                  {p.fullName} {p.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-0.5 rounded ml-2 whitespace-nowrap">(YOU)</span>}
                                 </span>
                               </div>
                               <span className="font-black text-[var(--accent)]">{p.totalScore}</span>
@@ -408,14 +563,14 @@ export default function GameScreen() {
                             <div className="text-5xl font-black text-white drop-shadow-[0_2px_0_#ff3399]">#{cuIdx + 1}</div>
                             <div className="text-[var(--accent)] font-black text-2xl mt-2">{leaderboard[cuIdx].totalScore} pts</div>
                           </div>
-                          
+
                           <div className="space-y-2 mt-auto">
                             <div className="text-xs font-bold text-[#a890c2] uppercase tracking-widest mb-2">Neighbouring Players</div>
                             {neighbors.map((p) => (
                               <div key={p.playerId} className={`flex items-center justify-between p-2 rounded-lg ${p.isMe ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
                                 <div className="flex items-center gap-2">
                                   <span className="text-[#a890c2] font-black w-8 text-center">#{p.actualRank}</span>
-                                  <span className={`font-bold truncate ${p.isMe ? 'text-[var(--primary)]' : 'text-white'}`}>{p.name} {p.isMe && <span className="text-xs bg-[var(--primary)] text-white px-1.5 py-0.5 rounded ml-1">(YOU)</span>}</span>
+                                  <span className={`font-bold break-words overflow-hidden ${p.isMe ? 'text-[var(--primary)]' : 'text-white'}`}>{p.fullName} {p.isMe && <span className="text-xs bg-[var(--primary)] text-white px-1.5 py-0.5 rounded ml-1 whitespace-nowrap">(YOU)</span>}</span>
                                 </div>
                                 <span className="font-black text-[var(--accent)] text-sm">{p.totalScore}</span>
                               </div>
@@ -435,17 +590,20 @@ export default function GameScreen() {
                           Current Round: {currentRound} | Total Rounds: {totalRounds}
                         </div>
                       </div>
-                      
+
                       {/* Mobile Cards ( < md ) */}
-                      <div className="md:hidden space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+                      <div className="md:hidden space-y-4 pr-2">
                         {leaderboard.map((player, idx) => (
                           <div key={player.playerId} className={`flex flex-col p-4 rounded-xl border-2 shadow-inner ${player.playerId === myPlayerId ? 'bg-[#3d1a5c] border-[var(--primary)] shadow-[0_0_15px_#ff007f]' : 'bg-[#150722] border-[var(--surface-border)]'}`}>
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center gap-3">
                                 <span className="text-[#a890c2] font-black text-2xl">#{idx + 1}</span>
-                                <span className={`font-bold text-xl truncate ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
-                                  {player.name} {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2">(YOU)</span>}
-                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`font-bold text-xl truncate ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                    {player.fullName} {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2 whitespace-nowrap">(YOU)</span>}
+                                  </div>
+                                  <div className="text-xs text-[#a890c2] font-bold uppercase tracking-widest">{player.employeeId}</div>
+                                </div>
                               </div>
                               <span className="text-[var(--primary)] font-black text-sm bg-[#2a1142] px-3 py-1 rounded-lg shadow-inner">+{player.roundScore}</span>
                             </div>
@@ -472,8 +630,8 @@ export default function GameScreen() {
                             {leaderboard.map((player, idx) => (
                               <tr key={player.playerId} className={`transition-colors ${player.playerId === myPlayerId ? 'bg-[#3d1a5c] shadow-[inset_4px_0_0_#ff007f]' : 'hover:bg-[#1a0929]'}`}>
                                 <td className="p-4 text-center text-[#a890c2] font-black text-lg">#{idx + 1}</td>
-                                <td className={`p-4 font-bold text-lg truncate max-w-[150px] ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
-                                  {player.name} {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2">(YOU)</span>}
+                                <td className={`p-4 font-bold text-lg truncate max-w-[200px] ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                  {player.fullName} <span className="text-[10px] opacity-70 ml-1">({player.employeeId})</span> {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2">(YOU)</span>}
                                 </td>
                                 <td className="p-4 text-center">
                                   <span className="text-[var(--primary)] font-black text-sm bg-[#2a1142] px-2 py-1 rounded-lg inline-block shadow-inner">+{player.roundScore}</span>
@@ -489,7 +647,7 @@ export default function GameScreen() {
                 );
               })()}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+              <div className="grid grid-grid-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
                 {['name', 'place', 'animal', 'thing'].map((cat) => (
                   <div key={cat} className="game-panel p-5 border-[var(--primary)] shadow-[6px_6px_0_#ff007f]">
                     <h3 className="text-xl font-black text-[var(--accent)] capitalize mb-4 border-b-2 border-[var(--surface-border)] pb-3 uppercase tracking-widest">{cat}</h3>
@@ -501,10 +659,11 @@ export default function GameScreen() {
                       ) : (
                         results.displayAnswers[cat].map((ans, idx) => (
                           <li key={idx} className={`flex items-center justify-between text-lg bg-[#150722] p-3 rounded-xl border-2 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
-                            <span className="text-white font-medium flex-1 min-w-0 pr-2 truncate">
-                              <span className="font-black text-[var(--secondary)] mr-2">{ans.playerName}:</span>
-                              <span className={`text-lg whitespace-nowrap ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>{ans.answer}</span>
-                              {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-2 inline-block">❌ Invalid</span>}
+                            <span className="text-white font-medium flex-1 min-w-0 pr-2 break-words overflow-hidden">
+                              <span className="font-bold text-white max-w-[120px] truncate">{ans.fullName || ans.playerName}</span>
+                              <span className="text-[var(--accent)] text-[10px] ml-1 uppercase tracking-widest">{ans.employeeId ? `(${ans.employeeId})` : ''}</span>
+                              <span className={`text-lg break-words inline-block ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>{ans.answer}</span>
+                              {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-2 inline-block whitespace-nowrap">❌ Invalid</span>}
                             </span>
                             <span className={`font-black text-xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
                               +{ans.points}
@@ -523,7 +682,7 @@ export default function GameScreen() {
               <p className="text-[#a890c2] font-medium text-lg mb-12 max-w-md">
                 You are managing the game. Players will see the timer and input fields on their screens.
               </p>
-              
+
               {roundStatus === 'active' && (
                 <div className="flex flex-col sm:flex-row gap-6 w-full max-w-xl">
                   <div className="game-panel border-[var(--secondary)] shadow-[8px_8px_0_#00e5ff] p-8 flex-1 transform -rotate-2">
@@ -532,7 +691,7 @@ export default function GameScreen() {
                       {timeLeft}s
                     </div>
                   </div>
-                  
+
                   <div className="game-panel border-[var(--accent)] shadow-[8px_8px_0_#998d00] p-8 flex-1 transform rotate-2">
                     <div className="text-sm font-bold text-[var(--accent)] uppercase tracking-widest mb-4">Submissions</div>
                     <div className="text-6xl font-black text-white flex items-baseline justify-center gap-2">
@@ -550,12 +709,12 @@ export default function GameScreen() {
                   <span className="font-bold text-xl uppercase tracking-widest text-[#a890c2]">Words starting with:</span> <span className="text-[var(--accent)] font-black text-4xl ml-2 drop-shadow-[0_2px_0_#000]">{currentLetter}</span>
                 </div>
               )}
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-bold text-[#00e5ff] uppercase tracking-wider mb-2">Name</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={inputs.name}
                     onChange={(e) => handleInputChange('name', e.target.value)}
                     disabled={roundStatus !== 'active'}
@@ -565,8 +724,8 @@ export default function GameScreen() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Place</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={inputs.place}
                     onChange={(e) => handleInputChange('place', e.target.value)}
                     disabled={roundStatus !== 'active'}
@@ -576,8 +735,8 @@ export default function GameScreen() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-[var(--accent)] uppercase tracking-wider mb-2">Animal</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={inputs.animal}
                     onChange={(e) => handleInputChange('animal', e.target.value)}
                     disabled={roundStatus !== 'active'}
@@ -587,8 +746,8 @@ export default function GameScreen() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-[#a890c2] uppercase tracking-wider mb-2">Thing</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={inputs.thing}
                     onChange={(e) => handleInputChange('thing', e.target.value)}
                     disabled={roundStatus !== 'active'}
@@ -604,23 +763,198 @@ export default function GameScreen() {
                     You can still edit your answers until time runs out.
                   </div>
                 )}
-                <button 
+                <button
                   type="submit"
                   disabled={roundStatus !== 'active' || isReady}
                   className={`w-full ${isReady ? 'bg-green-600 cursor-not-allowed text-white' : 'btn-primary'} py-5 font-black rounded-xl uppercase tracking-widest transition-all`}
                 >
-                  {roundStatus === 'ended' 
-                    ? 'Round Over' 
-                    : isReady 
-                      ? '✓ Ready' 
+                  {roundStatus === 'ended'
+                    ? 'Round Over'
+                    : isReady
+                      ? '✓ Ready'
                       : "✓ I'm Ready"}
                 </button>
               </div>
             </form>
           )}
         </div>
-        
+
       </div>
+
+      {/* Modals */}
+      {showRestartModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#150722] border-4 border-orange-500 shadow-[8px_8px_0_#cc6600] rounded-xl p-8 max-w-md w-full animate-bounce-in text-center">
+            <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Restart Game?</h2>
+            <p className="text-[#a890c2] font-medium text-lg mb-6">
+              All scores and round progress will be reset. You can also change the settings for the new game.
+            </p>
+
+            <div className="mb-6 bg-[#0a0212] p-4 rounded-xl border-2 border-[var(--surface-border)] text-left">
+              <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Number of Rounds</label>
+              <div className="flex items-center gap-4 bg-[#150722] p-2 rounded-xl border-2 border-[var(--surface-border)] mb-4">
+                <button type="button" className="w-10 h-10 bg-[var(--primary)] text-white rounded-lg font-black text-xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.max(1, Number(prev.totalRounds) - 1) }))}>-</button>
+                <div className="flex-1 text-center font-black text-2xl text-[var(--accent)]">{restartSettings.totalRounds}</div>
+                <button type="button" className="w-10 h-10 bg-[var(--secondary)] text-slate-900 rounded-lg font-black text-xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.min(50, Number(prev.totalRounds) + 1) }))}>+</button>
+              </div>
+
+              <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Round Duration</label>
+              <select
+                value={restartSettings.roundDuration}
+                onChange={(e) => setRestartSettings(prev => ({ ...prev, roundDuration: Number(e.target.value) }))}
+                className="w-full bg-[#150722] text-[var(--accent)] font-black text-xl text-center p-3 rounded-xl border-2 border-[var(--surface-border)] cursor-pointer outline-none"
+              >
+                <option value={10}>10 Seconds</option>
+                <option value={15}>15 Seconds</option>
+                <option value={20}>20 Seconds</option>
+                <option value={30}>30 Seconds</option>
+                <option value={45}>45 Seconds</option>
+                <option value={60}>60 Seconds</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button onClick={() => setShowRestartModal(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={handleRestartGame} className="btn-primary flex-1 bg-orange-500 hover:bg-orange-400 shadow-[0_4px_0_#cc6600]">Restart</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEndModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#150722] border-4 border-red-600 shadow-[8px_8px_0_#990000] rounded-xl p-8 max-w-md w-full animate-bounce-in text-center">
+            <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">End Game?</h2>
+            <p className="text-[#a890c2] font-medium text-lg mb-8">
+              Are you sure you want to end the game? The leaderboard will be finalized using current scores.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button onClick={() => setShowEndModal(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={handleEndGame} className="btn-primary flex-1 bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#990000] text-white">End Game</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {votingActive && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#150722] border-4 border-[var(--primary)] shadow-[8px_8px_0_#ff007f] rounded-xl p-8 max-w-md w-full animate-bounce-in text-center">
+            <h2 className="text-4xl font-black text-white uppercase tracking-tighter mb-4">Play Again?</h2>
+
+            {isHost ? (
+              <>
+                <p className="text-[#a890c2] font-medium text-lg mb-6">
+                  Waiting for players to vote to continue...
+                </p>
+                <div className="bg-[#0a0212] rounded-xl p-6 border-2 border-[var(--surface-border)] mb-6">
+                  <div className="text-sm font-bold text-[#a890c2] uppercase tracking-widest mb-4">Play Again Votes</div>
+                  <div className="flex justify-around items-center">
+                    <div className="text-center">
+                      <div className="text-green-500 font-black text-4xl mb-1">{voteStats.yesCount}</div>
+                      <div className="text-xs uppercase font-bold tracking-widest text-green-500/70">YES</div>
+                    </div>
+                    <div className="w-1 h-12 bg-[var(--surface-border)]"></div>
+                    <div className="text-center">
+                      <div className="text-red-500 font-black text-4xl mb-1">{voteStats.noCount}</div>
+                      <div className="text-xs uppercase font-bold tracking-widest text-red-500/70">NO</div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-[#a890c2] font-medium text-lg mb-8">
+                  The host wants to start another game. Click Play Again within 10 seconds if you want to continue.
+                </p>
+
+                {hasVoted ? (
+                  <div className="bg-green-500/10 border-2 border-green-500 rounded-xl p-4 mb-8 text-green-400 font-bold">
+                    Vote recorded. Waiting for timer...
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleCastVote}
+                    className="btn-primary w-full py-4 mb-8 bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600]"
+                  >
+                    Play Again
+                  </button>
+                )}
+              </>
+            )}
+
+            <div className="text-[var(--accent)] font-black text-2xl animate-pulse flex items-center justify-center gap-3">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Time Remaining: {voteTimeLeft}s
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPlayAgainSettings && isHost && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#150722] border-4 border-[var(--primary)] shadow-[8px_8px_0_#ff007f] rounded-xl p-8 max-w-md w-full animate-bounce-in text-center">
+
+            {playAgainSettingsMode === 'confirm' ? (
+              <>
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Reuse Previous Settings?</h2>
+                <div className="bg-[#0a0212] p-6 rounded-xl border-2 border-[var(--surface-border)] mb-8 space-y-4">
+                  <div className="flex justify-between items-center border-b border-[#2a1142] pb-2">
+                    <span className="text-[#a890c2] font-bold uppercase tracking-widest text-sm">Rounds</span>
+                    <span className="text-2xl font-black text-[var(--accent)]">{restartSettings.totalRounds}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#a890c2] font-bold uppercase tracking-widest text-sm">Duration</span>
+                    <span className="text-2xl font-black text-[var(--accent)]">{restartSettings.roundDuration}s</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <button onClick={handleFinalizePlayAgain} className="btn-primary py-4 bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600]">Reuse Settings</button>
+                  <button onClick={() => setPlayAgainSettingsMode('edit')} className="btn-secondary py-3">Change Settings</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-6">Change Settings</h2>
+
+                <div className="mb-8 text-left space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2 text-center">Number of Rounds</label>
+                    <div className="flex items-center gap-4 bg-[#0a0212] p-2 rounded-xl border-2 border-[var(--surface-border)]">
+                      <button type="button" className="w-12 h-12 bg-[var(--primary)] text-white rounded-lg font-black text-2xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.max(1, Number(prev.totalRounds) - 1) }))}>-</button>
+                      <div className="flex-1 text-center font-black text-3xl text-[var(--accent)]">{restartSettings.totalRounds}</div>
+                      <button type="button" className="w-12 h-12 bg-[var(--secondary)] text-slate-900 rounded-lg font-black text-2xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.min(50, Number(prev.totalRounds) + 1) }))}>+</button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2 text-center">Round Duration</label>
+                    <select
+                      value={restartSettings.roundDuration}
+                      onChange={(e) => setRestartSettings(prev => ({ ...prev, roundDuration: Number(e.target.value) }))}
+                      className="w-full bg-[#0a0212] text-[var(--accent)] font-black text-2xl text-center p-4 rounded-xl border-2 border-[var(--surface-border)] cursor-pointer outline-none"
+                    >
+                      <option value={10}>10 Seconds</option>
+                      <option value={15}>15 Seconds</option>
+                      <option value={20}>20 Seconds</option>
+                      <option value={30}>30 Seconds</option>
+                      <option value={45}>45 Seconds</option>
+                      <option value={60}>60 Seconds</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <button onClick={handleFinalizePlayAgain} className="btn-primary py-4">Save & Start Game</button>
+                  <button onClick={() => setPlayAgainSettingsMode('confirm')} className="btn-secondary py-3 text-sm">Back</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

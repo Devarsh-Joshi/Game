@@ -7,6 +7,27 @@ export default function HostDashboard() {
   const navigate = useNavigate();
   const [players, setPlayers] = useState([]);
   const [isSyncing, setIsSyncing] = useState(true);
+  const [copySuccess, setCopySuccess] = useState('');
+  
+  const inviteLink = `${window.location.origin}/join/${roomId}`;
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      setCopySuccess('Copied!');
+      setTimeout(() => setCopySuccess(''), 2000);
+    });
+  };
+
+  const handleShareLink = () => {
+    if (navigator.share) {
+      navigator.share({
+        title: 'Join Think & Type Game',
+        url: inviteLink,
+      }).catch(console.error);
+    } else {
+      handleCopyLink();
+    }
+  };
 
   useEffect(() => {
     if (!socket.connected) {
@@ -82,10 +103,25 @@ export default function HostDashboard() {
               </svg>
             </div>
             <h2 className="text-4xl font-black text-white mb-4 uppercase tracking-tighter drop-shadow-[0_2px_0_#008b99]">Ready to Start</h2>
-            <p className="text-[#a890c2] max-w-md mx-auto font-medium text-lg">
-              Share the room code <strong className="text-[var(--accent)] font-bold text-xl">{roomId}</strong> with your players. 
+            <p className="text-[#a890c2] max-w-md mx-auto font-medium text-lg mb-8">
+              Share the invite link with your players. 
               Once everyone has joined, you can begin the session.
             </p>
+            
+            <div className="bg-[#150722] p-6 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner w-full max-w-xl flex flex-col gap-4">
+              <div className="text-sm font-bold text-[#ff007f] uppercase tracking-widest text-left">Invite Link</div>
+              <div className="bg-[#0a0212] p-4 rounded-xl border-2 border-[var(--primary)] text-[var(--secondary)] font-mono text-sm sm:text-lg break-all truncate">
+                {inviteLink}
+              </div>
+              <div className="flex gap-4 mt-2">
+                <button onClick={handleCopyLink} className="flex-1 btn-secondary py-3 text-sm flex justify-center items-center gap-2 relative">
+                  {copySuccess ? '✓ Copied' : '📋 Copy Link'}
+                </button>
+                <button onClick={handleShareLink} className="flex-1 btn-primary py-3 text-sm flex justify-center items-center gap-2 bg-[#008b99] hover:bg-[#007080] shadow-[0_4px_0_#004c59]">
+                  🔗 Share
+                </button>
+              </div>
+            </div>
             
             <button 
               onClick={handleStartGame}
@@ -126,11 +162,11 @@ export default function HostDashboard() {
                   {players.map((player, index) => (
                     <li key={index} className="bg-[#150722] border-2 border-[var(--surface-border)] rounded-xl p-4 flex items-center gap-4 animate-bounce-in shadow-inner" style={{animationDelay: `${index * 0.05}s`}}>
                       <div className="w-12 h-12 rounded-lg bg-[var(--primary)] flex items-center justify-center text-white font-black text-xl shadow-[inset_0_-4px_0_rgba(0,0,0,0.2)] transform -rotate-3">
-                        {player.name.charAt(0).toUpperCase()}
+                        {player.fullName ? player.fullName.charAt(0).toUpperCase() : '?'}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold text-white text-lg truncate">{player.name}</div>
-                        <div className="text-xs font-medium text-[var(--secondary)] truncate uppercase tracking-widest">{player.email}</div>
+                        <div className="font-bold text-white text-lg truncate">{player.fullName}</div>
+                        <div className="text-xs font-medium text-[var(--secondary)] truncate uppercase tracking-widest">{player.employeeId}</div>
                       </div>
                     </li>
                   ))}

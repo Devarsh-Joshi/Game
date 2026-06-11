@@ -7,9 +7,6 @@ const crypto = require('crypto');
 const { generateLetter } = require('./services/letterGenerator');
 const { validateRoundSubmissions, validationCache } = require('./services/validationService');
 
-function isValidCompanyEmail(email) {
-  return typeof email === 'string' && email.toLowerCase().endsWith("@petpooja.com");
-}
 
 function isValidForLetter(answer, currentLetter) {
   if (!answer || typeof answer !== 'string') return false;
@@ -95,10 +92,19 @@ app.get('/room/:roomId', (req, res) => {
       status: room.status,
       roundStatus: room.roundStatus,
       currentRound: room.currentRound,
-      players: room.players.map(p => ({ name: p.name, id: p.id })),
+      players: room.players.map(p => ({
+            employeeId: p.employeeId,
+            firstName: p.firstName,
+            lastName: p.lastName,
+            fullName: p.fullName,
+            id: p.id
+      })),
       leaderboard: room.players.map(p => ({
-        name: p.name,
-        totalScore: room.scores[p.id] || 0
+            employeeId: p.employeeId,
+            firstName: p.firstName,
+            lastName: p.lastName,
+            fullName: p.fullName,
+            totalScore: room.scores[p.playerId] || 0
       }))
     });
   } else {
@@ -136,17 +142,22 @@ io.on('connection', (socket) => {
       opts = {};
     }
     const totalRounds = Math.min(Math.max(Number(opts.totalRounds) || 15, 1), 50);
+    const validDurations = [10, 15, 20, 30, 45, 60];
+    const roundDuration = validDurations.includes(Number(opts.roundDuration)) ? Number(opts.roundDuration) : 15;
+    
     // Generate a simple 6-character room code
     const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const hostPlayerId = crypto.randomUUID();
     
     rooms.set(roomCode, {
       hostPlayerId,
+      hostId: socket.id, // Current active socket ID for the host
       status: 'waiting', // can be 'waiting', 'playing', 'ended'
       players: [],
       usedLetters: [],
       currentRound: 0,
       totalRounds: totalRounds,
+      roundDuration: roundDuration,
       currentLetter: '',
       timerInterval: null,
       roundStatus: 'waiting',
@@ -173,15 +184,21 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('join-room', ({ roomCode, name, email }, callback) => {
+  socket.on('join-room', ({ roomCode, employeeId, firstName, lastName }, callback) => {
+    console.log("Player Join Attempt");
     try {
-      if (!name || typeof name !== 'string' || name.trim() === '') {
-        if (typeof callback === 'function') callback({ success: false, error: 'Name is required' });
+      if (!employeeId || typeof employeeId !== 'string' || !/^[A-Za-z0-9]{3,20}$/.test(employeeId.trim())) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Employee ID must be 3-20 alphanumeric characters.' });
         return;
       }
       
-      if (!isValidCompanyEmail(email)) {
-        if (typeof callback === 'function') callback({ success: false, error: 'Only Petpooja email addresses are allowed.' });
+      if (!firstName || typeof firstName !== 'string' || !/^[A-Za-z]+$/.test(firstName.trim())) {
+        if (typeof callback === 'function') callback({ success: false, error: 'First Name must contain only letters.' });
+        return;
+      }
+      
+      if (!lastName || typeof lastName !== 'string' || !/^[A-Za-z]+$/.test(lastName.trim())) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Last Name must contain only letters.' });
         return;
       }
       
@@ -197,23 +214,29 @@ io.on('connection', (socket) => {
         return;
       }
       
-      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedEmployeeId = employeeId.trim().toUpperCase();
+      const fn = firstName.trim();
+      const ln = lastName.trim();
       
-      const emailExists = room.players.some(p => p.email.trim().toLowerCase() === normalizedEmail);
-      if (emailExists) {
-        socket.emit('join-error', { message: 'This email has already joined this room.' });
+      const isDuplicate = room.players.some(p => p.employeeId === normalizedEmployeeId);
+      if (isDuplicate) {
+        socket.emit('join-error', { message: 'This Employee ID has already joined this room.' });
         if (typeof callback === 'function') {
-          callback({ success: false, error: 'This email has already joined this room.' });
+          callback({ success: false, error: 'This Employee ID has already joined this room.' });
         }
         return;
       }
       
       const playerId = crypto.randomUUID();
+      const fullName = `${fn} ${ln}`;
       const newPlayer = {
         id: socket.id, // current socket connection
         playerId,      // permanent identifier
-        name,
-        email: normalizedEmail
+        employeeId: normalizedEmployeeId,
+        firstName: fn,
+        lastName: ln,
+        fullName,
+        name: fullName // Keep name field temporarily for backwards compatibility in case other parts still use it
       };
       
       room.players.push(newPlayer);
@@ -226,16 +249,23 @@ io.on('connection', (socket) => {
       }
       socket.join(roomCode);
       
-      logInfo(`ROOM:${roomCode}`, `${name} joined.`);
+      logInfo(`ROOM:${roomCode}`, `${fullName} joined.`);
       
       console.log(`Room: ${roomCode}`);
-      console.log(`Players Count: ${room.players.length}`);
+      console.log("Player Joined Successfully");
       
       // Notify everyone in the room (including host) about the updated player list
       io.to(roomCode).emit('players-updated', { players: room.players });
       
       if (typeof callback === 'function') {
-        callback({ success: true, roomCode, players: room.players, totalRounds: room.totalRounds, playerId });
+        callback({ 
+          success: true, 
+          roomCode, 
+          players: room.players, 
+          totalRounds: room.totalRounds, 
+          roundDuration: room.roundDuration, 
+          playerId 
+        });
       }
     } else {
       if (typeof callback === 'function') {
@@ -279,21 +309,22 @@ io.on('connection', (socket) => {
           socket.join(roomCode);
           logInfo(`ROOM:${roomCode}`, `Player ${playerId} reconnected as ${socket.id}`);
           
-          // Send back the full state
+          io.to(roomCode).emit('players-updated', { players: room.players });
+          
           if (typeof callback === 'function') {
-            callback({
-              success: true,
+            callback({ 
+              success: true, 
+              status: room.status, 
               isHost,
-              roomCode,
-              players: room.players,
               totalRounds: room.totalRounds,
+              roundDuration: room.roundDuration,
               currentRound: room.currentRound,
-              status: room.status,
-              roundStatus: room.roundStatus,
-              currentLetter: room.currentLetter,
+              timeLeft: room.timeLeft,
               displayAnswers: room.latestDisplayAnswers,
               leaderboard: room.latestLeaderboard,
-              winners: room.winners
+              winners: room.winners,
+              roundStatus: room.roundStatus,
+              currentLetter: room.currentLetter
             });
           }
           
@@ -358,6 +389,7 @@ io.on('connection', (socket) => {
       io.to(roomCode).emit('round-started', {
         round: room.currentRound,
         totalRounds: room.totalRounds,
+        roundDuration: room.roundDuration,
         letter: room.currentLetter
       });
       io.to(roomCode).emit('submission-progress', { received: 0, total: room.players.length });
@@ -365,7 +397,7 @@ io.on('connection', (socket) => {
       logInfo(`ROOM:${roomCode}`, `Round ${room.currentRound} started with letter ${room.currentLetter}`);
 
       room.roundStartTime = Date.now();
-      let timeLeft = 15; // 15 seconds
+      let timeLeft = room.roundDuration || 15;
       
       io.to(roomCode).emit('timer-update', timeLeft);
 
@@ -526,8 +558,10 @@ io.on('connection', (socket) => {
       return {
         playerId: pid,
         socketId: p.id,
-        name: p.name,
-        email: p.email,
+        employeeId: p.employeeId,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        fullName: p.fullName,
         totalScore: room.scores[pid] || 0,
         roundScores: room.roundHistory[pid] || [],
         roundScore: roundScores[pid] || 0,
@@ -568,17 +602,224 @@ io.on('connection', (socket) => {
 
   socket.on('end-game', (roomCode) => {
     try {
-    if (rooms.has(roomCode)) {
-      const room = rooms.get(roomCode);
-      if (room.hostId === socket.id) {
-        if (room.timerInterval) clearInterval(room.timerInterval);
-        room.status = 'ended';
-        io.to(roomCode).emit('game-ended');
-        logInfo(`ROOM:${roomCode}`, `Game manually ended by host`);
+      if (rooms.has(roomCode)) {
+        const room = rooms.get(roomCode);
+        if (room.hostId === socket.id || room.hostPlayerId === socket.playerId) {
+          if (room.timerInterval) clearInterval(room.timerInterval);
+          room.status = 'ended';
+          room.roundStatus = 'finished';
+          
+          // Generate final leaderboard based on current scores
+          const finalLeaderboard = room.players.map(p => {
+            const pid = p.playerId;
+            const avgTime = room.validSubmissionsCount[pid] > 0 
+              ? room.totalSubmissionTime[pid] / room.validSubmissionsCount[pid] 
+              : Infinity;
+              
+            return {
+              playerId: pid,
+              socketId: p.id,
+              employeeId: p.employeeId,
+              firstName: p.firstName,
+              lastName: p.lastName,
+              fullName: p.fullName,
+              totalScore: room.scores[pid] || 0,
+              roundScores: room.roundHistory[pid] || [],
+              roundScore: 0,
+              uniqueAnswers: room.uniqueAnswersCount[pid] || 0,
+              avgSubmissionTime: avgTime
+            };
+          }).sort((a, b) => {
+            if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+            if (b.uniqueAnswers !== a.uniqueAnswers) return b.uniqueAnswers - a.uniqueAnswers;
+            return a.avgSubmissionTime - b.avgSubmissionTime;
+          });
+
+          const winners = finalLeaderboard.slice(0, 2);
+          room.winners = winners;
+          room.latestLeaderboard = finalLeaderboard;
+
+          io.to(roomCode).emit('game-ended');
+          io.to(roomCode).emit('winner-announced', {
+            winners,
+            finalLeaderboard
+          });
+          logInfo(`ROOM:${roomCode}`, `Game manually ended by host`);
+        }
       }
-    }
     } catch (err) {
       logError('END-GAME', 'Error', err);
+    }
+  });
+
+  socket.on('restart-game', (data) => {
+    try {
+      const roomCode = typeof data === 'string' ? data : data.roomCode;
+      if (rooms.has(roomCode)) {
+        const room = rooms.get(roomCode);
+        const pid = typeof data === 'string' ? socket.playerId : data.playerId;
+        if (room.hostId === socket.id || room.hostPlayerId === pid) {
+          if (room.timerInterval) clearInterval(room.timerInterval);
+          if (room.playAgainTimer) clearInterval(room.playAgainTimer);
+          
+          if (typeof data === 'object') {
+            if (data.totalRounds) room.totalRounds = Math.min(Math.max(Number(data.totalRounds) || 15, 1), 50);
+            const validDurations = [10, 15, 20, 30, 45, 60];
+            if (data.roundDuration && validDurations.includes(Number(data.roundDuration))) {
+              room.roundDuration = Number(data.roundDuration);
+            }
+          }
+
+          // Reset room state
+          room.status = 'waiting';
+          room.roundStatus = 'waiting';
+          room.currentRound = 0;
+          room.currentLetter = '';
+          room.usedLetters = [];
+          room.submissions = {};
+          room.validatedAnswers = {};
+          room.winners = null;
+          room.latestDisplayAnswers = null;
+          room.latestLeaderboard = null;
+          room.roundStartTime = null;
+          room.playAgainVotes = {};
+
+          // Reset all player stats
+          room.players.forEach(p => {
+            room.scores[p.playerId] = 0;
+            room.roundHistory[p.playerId] = [];
+            room.uniqueAnswersCount[p.playerId] = 0;
+            room.totalSubmissionTime[p.playerId] = 0;
+            room.validSubmissionsCount[p.playerId] = 0;
+          });
+
+          io.to(roomCode).emit('game-restarted');
+          logInfo(`ROOM:${roomCode}`, `Game manually restarted by host`);
+        }
+      }
+    } catch (err) {
+      logError('RESTART-GAME', 'Error', err);
+    }
+  });
+
+  socket.on('start-play-again-vote', ({ roomCode, playerId }) => {
+    try {
+      if (rooms.has(roomCode)) {
+        const room = rooms.get(roomCode);
+        if (room.hostId === socket.id || room.hostPlayerId === playerId) {
+          room.playAgainVotes = {};
+          // Host automatically votes YES
+          room.playAgainVotes[room.hostPlayerId] = 'yes';
+
+          let timeLeft = 10;
+          io.to(roomCode).emit('play-again-vote-started');
+
+          if (room.playAgainTimer) clearInterval(room.playAgainTimer);
+
+          room.playAgainTimer = setInterval(() => {
+            timeLeft--;
+
+            let yesCount = 0;
+            let noCount = 0;
+            room.players.forEach(p => {
+              if (room.playAgainVotes[p.playerId] === 'yes') yesCount++;
+              if (room.playAgainVotes[p.playerId] === 'no') noCount++;
+            });
+            
+            if (timeLeft <= 0) {
+              clearInterval(room.playAgainTimer);
+              room.playAgainTimer = null;
+              
+              const yesPlayersIds = [room.hostPlayerId];
+              room.players.forEach(p => {
+                if (room.playAgainVotes[p.playerId] !== 'yes' && p.playerId !== room.hostPlayerId) {
+                  room.playAgainVotes[p.playerId] = 'no';
+                }
+                if (room.playAgainVotes[p.playerId] === 'yes') {
+                  if (!yesPlayersIds.includes(p.playerId)) yesPlayersIds.push(p.playerId);
+                }
+              });
+
+              // Filter room.players
+              room.players = room.players.filter(p => yesPlayersIds.includes(p.playerId));
+
+              // The host needs to finalize the settings
+              io.to(roomCode).emit('play-again-vote-ended', { 
+                yesPlayers: yesPlayersIds,
+                totalRounds: room.totalRounds,
+                roundDuration: room.roundDuration
+              });
+              logInfo(`ROOM:${roomCode}`, `Play again voting ended. ${yesPlayersIds.length} continuing. Waiting for host to finalize settings.`);
+            } else {
+              io.to(roomCode).emit('play-again-vote-update', { 
+                timeLeft, 
+                yesCount, 
+                noCount, 
+                totalCount: room.players.length 
+              });
+            }
+          }, 1000);
+        }
+      }
+    } catch (err) {
+      logError('START-PLAY-AGAIN-VOTE', 'Error', err);
+    }
+  });
+
+  socket.on('finalize-play-again', ({ roomCode, playerId, totalRounds, roundDuration }) => {
+    try {
+      if (rooms.has(roomCode)) {
+        const room = rooms.get(roomCode);
+        if (room.hostId === socket.id || room.hostPlayerId === playerId) {
+          
+          if (totalRounds) room.totalRounds = Math.min(Math.max(Number(totalRounds) || 15, 1), 50);
+          const validDurations = [10, 15, 20, 30, 45, 60];
+          if (roundDuration && validDurations.includes(Number(roundDuration))) {
+            room.roundDuration = Number(roundDuration);
+          }
+
+          // Reset room state
+          room.status = 'waiting';
+          room.roundStatus = 'waiting';
+          room.currentRound = 0;
+          room.currentLetter = '';
+          room.usedLetters = [];
+          room.submissions = {};
+          room.validatedAnswers = {};
+          room.winners = null;
+          room.latestDisplayAnswers = null;
+          room.latestLeaderboard = null;
+          room.roundStartTime = null;
+          room.playAgainVotes = {};
+
+          // Reset player stats for remaining
+          room.players.forEach(p => {
+            room.scores[p.playerId] = 0;
+            room.roundHistory[p.playerId] = [];
+            room.uniqueAnswersCount[p.playerId] = 0;
+            room.totalSubmissionTime[p.playerId] = 0;
+            room.validSubmissionsCount[p.playerId] = 0;
+          });
+
+          io.to(roomCode).emit('game-restarted');
+          logInfo(`ROOM:${roomCode}`, `Play again finalized by host.`);
+        }
+      }
+    } catch (err) {
+      logError('FINALIZE-PLAY-AGAIN', 'Error', err);
+    }
+  });
+
+  socket.on('play-again-vote', ({ roomCode, vote, playerId }) => {
+    try {
+      if (rooms.has(roomCode)) {
+        const room = rooms.get(roomCode);
+        const pid = playerId || socket.playerId;
+        if (!room.playAgainVotes) room.playAgainVotes = {};
+        room.playAgainVotes[pid] = vote;
+      }
+    } catch (err) {
+      logError('PLAY-AGAIN-VOTE', 'Error', err);
     }
   });
 

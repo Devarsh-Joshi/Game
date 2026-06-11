@@ -112,7 +112,10 @@ async function validateRoundSubmissions(submissions, currentLetter) {
     // Layer 3: AI Validation
     if (ai && (aiBatch.place.length > 0 || aiBatch.animal.length > 0 || aiBatch.thing.length > 0)) {
         try {
-            const prompt = `Validate the following game answers for categories. Are these real entities?
+            const prompt = `Validate the following game answers. You MUST strictly validate each answer against its specific CATEGORY. 
+For example, if the category is "Place", the answer MUST be a real geographic place (city, village, town, state, country, region, landmark). If the answer is a real word but NOT a Place (like "Samosa", which is a food/thing), you MUST mark it as false.
+If the category is "Animal", it MUST be a real animal, not a place or a thing.
+
 Respond strictly in JSON format matching this schema:
 {
   "place": { "oman": true, "fakeplace": false },
@@ -125,7 +128,11 @@ Place: ${aiBatch.place.join(', ') || 'none'}
 Animal: ${aiBatch.animal.join(', ') || 'none'}
 Thing: ${aiBatch.thing.join(', ') || 'none'}
 
-Remember, accept rare/uncommon places/animals/things if they are real. Reject gibberish or non-existent ones. Ensure output is strict JSON.`;
+Remember:
+1. Accept rare/uncommon entities if they are real.
+2. Reject gibberish or non-existent entities.
+3. CRITICAL: Reject answers that do not belong to the requested category, even if they are real words.
+Ensure output is strict JSON.`;
 
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',

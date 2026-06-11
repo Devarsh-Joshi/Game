@@ -4,6 +4,7 @@ import LandingPage from './pages/LandingPage';
 import HostDashboard from './pages/HostDashboard';
 import WaitingRoom from './pages/WaitingRoom';
 import GameScreen from './pages/GameScreen';
+import JoinRoom from './pages/JoinRoom';
 
 function App() {
   return (
@@ -11,6 +12,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/host/:roomId" element={<HostDashboard />} />
+        <Route path="/join/:roomId" element={<JoinRoom />} />
         <Route path="/room/:roomId" element={<WaitingRoom />} />
         <Route path="/game/:roomId" element={<GameScreen />} />
       </Routes>

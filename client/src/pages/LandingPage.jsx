@@ -2,21 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { socket } from '../socket';
 
-function isValidCompanyEmail(email) {
-  return typeof email === 'string' && email.toLowerCase().endsWith("@petpooja.com");
-}
-
 export default function LandingPage() {
   const navigate = useNavigate();
   const [isCreating, setIsCreating] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
   const [totalRounds, setTotalRounds] = useState(15);
-
-  // Player state
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [roomCode, setRoomCode] = useState('');
+  const [roundDuration, setRoundDuration] = useState(15);
 
   useEffect(() => {
     socket.connect();
@@ -50,24 +41,13 @@ export default function LandingPage() {
         }
       });
     }
-
-    const handleJoinError = (data) => {
-      setError(data.message);
-      setIsJoining(false);
-    };
-    
-    socket.on('join-error', handleJoinError);
-    
-    return () => {
-      socket.off('join-error', handleJoinError);
-    };
   }, [navigate]);
 
   const handleCreateRoom = () => {
     setIsCreating(true);
     setError('');
     
-    socket.emit('create-room', { totalRounds }, (response) => {
+    socket.emit('create-room', { totalRounds, roundDuration }, (response) => {
       setIsCreating(false);
       if (response.success) {
         localStorage.setItem('roomId', response.roomCode);
@@ -80,33 +60,7 @@ export default function LandingPage() {
     });
   };
 
-  const handleJoinRoom = (e) => {
-    e.preventDefault();
-    if (!name || !email || !roomCode) {
-      setError('Please fill in all fields to join a room.');
-      return;
-    }
 
-    if (!isValidCompanyEmail(email)) {
-      setError('Only Petpooja email addresses are allowed.');
-      return;
-    }
-
-    setIsJoining(true);
-    setError('');
-
-    socket.emit('join-room', { roomCode, name, email }, (response) => {
-      setIsJoining(false);
-      if (response.success) {
-        localStorage.setItem('roomId', response.roomCode);
-        localStorage.setItem('playerId', response.playerId);
-        localStorage.setItem('isHost', 'false');
-        navigate(`/room/${response.roomCode}`);
-      } else {
-        setError(response.error || 'Failed to join room.');
-      }
-    });
-  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -123,7 +77,7 @@ export default function LandingPage() {
         <p className="text-[var(--secondary)] font-bold text-lg uppercase tracking-widest mt-3">The ultimate quick-thinking party game</p>
       </div>
 
-      <div className="w-full max-w-5xl grid md:grid-cols-2 gap-6 relative z-10 animate-fade-in">
+      <div className="w-full max-w-xl mx-auto relative z-10 animate-fade-in">
         
         {/* Host Section */}
         <div className="game-panel p-6 md:p-8 flex flex-col justify-center text-center h-full min-h-[350px] border-[var(--primary)] shadow-[8px_8px_0_#ff007f]">
@@ -138,7 +92,7 @@ export default function LandingPage() {
           
           <div className="mb-6 flex flex-col items-center">
             <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-3">Number of Rounds</label>
-            <div className="flex items-center gap-4 bg-[#150722] p-2 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner transform rotate-1">
+            <div className="flex items-center gap-4 bg-[#150722] p-2 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner transform rotate-1 mb-6">
               <button 
                 type="button"
                 className="w-12 h-12 bg-[var(--primary)] text-white rounded-xl font-black text-2xl flex items-center justify-center hover:bg-[#ff007f] hover:-translate-y-1 transition-transform shadow-[0_4px_0_#99004d] active:translate-y-0 active:shadow-none"
@@ -157,7 +111,32 @@ export default function LandingPage() {
                 +
               </button>
             </div>
+            
+            <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-3">Round Duration</label>
+            <div className="w-full relative mb-6">
+              <select 
+                value={roundDuration}
+                onChange={(e) => setRoundDuration(Number(e.target.value))}
+                className="w-full appearance-none bg-[#150722] text-[var(--accent)] font-black text-2xl text-center p-4 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner cursor-pointer hover:border-[var(--secondary)] transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+              >
+                <option value={10}>10 Seconds</option>
+                <option value={15}>15 Seconds</option>
+                <option value={20}>20 Seconds</option>
+                <option value={30}>30 Seconds</option>
+                <option value={45}>45 Seconds</option>
+                <option value={60}>60 Seconds</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-6 text-[var(--accent)]">
+                <svg className="fill-current h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+              </div>
+            </div>
           </div>
+          
+          {error && (
+            <div className="bg-[var(--primary)] text-white font-bold px-4 py-3 rounded-xl mb-6 text-center border-4 border-black shadow-[4px_4px_0_rgba(0,0,0,0.4)] animate-bounce-in">
+              {error}
+            </div>
+          )}
           
           <button 
             onClick={handleCreateRoom}
@@ -175,83 +154,6 @@ export default function LandingPage() {
             ) : 'Create Room'}
           </button>
         </div>
-
-        {/* Player Section */}
-        <div className="game-panel p-6 md:p-8 h-full min-h-[350px] border-[var(--secondary)] shadow-[8px_8px_0_#00e5ff]">
-          <div className="w-16 h-16 bg-[var(--secondary)] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner transform -rotate-3">
-            <svg className="w-10 h-10 text-slate-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-black mb-4 text-white text-center uppercase tracking-tight">Join Game</h2>
-          
-          <form onSubmit={handleJoinRoom} className="space-y-3">
-            <div>
-              <label className="block text-sm font-bold text-[#00e5ff] uppercase tracking-wider mb-2">Your Name</label>
-              <input 
-                type="text" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter your nickname"
-                className="input-field"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-bold text-[#00e5ff] uppercase tracking-wider mb-2">Email Address</label>
-              <input 
-                type="email" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="jane@petpooja.com"
-                className={`input-field ${email.length > 0 && !isValidCompanyEmail(email) ? 'border-[var(--primary)] focus:border-[var(--primary)] focus:ring-[var(--primary)] text-[var(--primary)]' : ''}`}
-                required
-              />
-              {email.length > 0 && !isValidCompanyEmail(email) && (
-                <p className="text-[var(--primary)] font-bold text-sm mt-2 pl-1 animate-bounce-in">⚠️ Petpooja email required.</p>
-              )}
-            </div>
-            
-            <div>
-              <label className="block text-sm font-bold text-[#00e5ff] uppercase tracking-wider mb-1">Room Code</label>
-              <input 
-                type="text" 
-                value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                placeholder="XXXXXX"
-                maxLength={6}
-                className="input-field text-center tracking-[0.5em] font-black text-xl uppercase py-3"
-                required
-              />
-            </div>
-
-            {error && (
-              <div className="bg-[var(--primary)] text-white font-bold px-4 py-3 rounded-xl text-center border-4 border-black shadow-[4px_4px_0_rgba(0,0,0,0.4)] animate-bounce-in">
-                {error}
-              </div>
-            )}
-
-            <div className="pt-4">
-              <button 
-                type="submit"
-                disabled={isJoining || (email.length > 0 && !isValidCompanyEmail(email))}
-                className="btn-secondary w-full disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
-              >
-                {isJoining ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Joining...
-                  </>
-                ) : 'Join Room'}
-              </button>
-            </div>
-          </form>
-        </div>
-        
       </div>
     </div>
   );
