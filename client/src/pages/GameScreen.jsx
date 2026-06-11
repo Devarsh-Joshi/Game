@@ -121,7 +121,19 @@ export default function GameScreen() {
 
     const handleRoundResults = (data) => {
       setResults(data);
-      setRoundStatus('results');
+      setRoundStatus('review');
+    };
+
+    const handleScoreUpdated = (data) => {
+      setResults(prev => ({
+        ...prev,
+        displayAnswers: data.displayAnswers,
+        leaderboard: data.leaderboard
+      }));
+    };
+
+    const handleRoundFinalized = () => {
+      setRoundStatus('finalized');
     };
 
     const handleWinnerAnnounced = (data) => {
@@ -186,6 +198,8 @@ export default function GameScreen() {
     socket.on('round-ended', handleRoundEnded);
     socket.on('submission-progress', handleSubmissionProgress);
     socket.on('round-results', handleRoundResults);
+    socket.on('score-updated', handleScoreUpdated);
+    socket.on('round-finalized', handleRoundFinalized);
     socket.on('winner-announced', handleWinnerAnnounced);
     socket.on('game-restarted', handleGameRestarted);
     socket.on('play-again-vote-started', handlePlayAgainVoteStarted);
@@ -202,6 +216,8 @@ export default function GameScreen() {
       socket.off('round-ended', handleRoundEnded);
       socket.off('submission-progress', handleSubmissionProgress);
       socket.off('round-results', handleRoundResults);
+      socket.off('score-updated', handleScoreUpdated);
+      socket.off('round-finalized', handleRoundFinalized);
       socket.off('winner-announced', handleWinnerAnnounced);
       socket.off('game-restarted', handleGameRestarted);
       socket.off('play-again-vote-started', handlePlayAgainVoteStarted);
@@ -226,6 +242,14 @@ export default function GameScreen() {
   const handleEndGame = () => {
     socket.emit('end-game', roomId);
     setShowEndModal(false);
+  };
+
+  const handleUpdateScore = (playerId, category, newScore) => {
+    socket.emit('update-score', { roomCode: roomId, playerId, category, newScore });
+  };
+
+  const handleFinalizeRound = () => {
+    socket.emit('finalize-round', roomId);
   };
 
   const handleStartPlayAgainVote = () => {
@@ -433,7 +457,7 @@ export default function GameScreen() {
             </div>
           )}
 
-          {isHost && (roundStatus === 'waiting' || (roundStatus === 'results' && currentRound < totalRounds)) && (
+          {isHost && (roundStatus === 'waiting' || (roundStatus === 'finalized' && currentRound < totalRounds)) && (
             <div className="flex flex-col flex-wrap gap-4 w-full mt-4">
               <button
                 onClick={handleStartRound}
@@ -461,9 +485,26 @@ export default function GameScreen() {
             </div>
           )}
 
-          {!isHost && (roundStatus === 'waiting' || roundStatus === 'results') && (
+          {!isHost && (roundStatus === 'waiting' || roundStatus === 'finalized') && (
             <div className="mt-6 text-[#a890c2] font-bold uppercase tracking-widest text-sm text-center">
               Waiting for host to start the next round...
+            </div>
+          )}
+
+          {!isHost && roundStatus === 'review' && (
+            <div className="mt-6 text-[var(--accent)] font-bold uppercase tracking-widest text-sm text-center animate-pulse">
+              Waiting for Host Review...
+            </div>
+          )}
+
+          {isHost && roundStatus === 'review' && (
+            <div className="flex flex-col flex-wrap gap-4 w-full mt-4">
+              <button
+                onClick={handleFinalizeRound}
+                className="btn-primary w-full bg-[#008b99] hover:bg-[#007080] shadow-[0_4px_0_#004c59]"
+              >
+                Finalize Round
+              </button>
             </div>
           )}
 
@@ -509,7 +550,7 @@ export default function GameScreen() {
 
         {/* Right Column */}
         <div className="w-full md:w-2/3 md:max-h-[80vh] md:overflow-y-auto md:pr-2 md:custom-scrollbar">
-          {roundStatus === 'results' && results ? (
+          {(roundStatus === 'review' || roundStatus === 'finalized') && results ? (
             <div className="space-y-8 animate-fade-in text-left">
               {(() => {
                 const leaderboard = results.leaderboard;
@@ -662,12 +703,27 @@ export default function GameScreen() {
                             <span className="text-white font-medium flex-1 min-w-0 pr-2 break-words overflow-hidden">
                               <span className="font-bold text-white max-w-[120px] truncate">{ans.fullName || ans.playerName}</span>
                               <span className="text-[var(--accent)] text-[10px] ml-1 uppercase tracking-widest">{ans.employeeId ? `(${ans.employeeId})` : ''}</span>
-                              <span className={`text-lg break-words inline-block ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>{ans.answer}</span>
+                              <span className={`text-lg break-words inline-block ml-2 ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>{ans.answer}</span>
                               {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-2 inline-block whitespace-nowrap">❌ Invalid</span>}
                             </span>
-                            <span className={`font-black text-xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
-                              +{ans.points}
-                            </span>
+                            
+                            {isHost && roundStatus === 'review' ? (
+                              <div className="flex items-center gap-1 bg-[#0a0212] p-1 rounded-lg border border-[var(--surface-border)]">
+                                {[10, 5, 0].map(score => (
+                                  <button
+                                    key={score}
+                                    onClick={() => handleUpdateScore(ans.playerId, cat, score)}
+                                    className={`w-8 h-8 rounded text-sm font-black transition-all ${ans.points === score ? (score === 10 ? 'bg-[var(--accent)] text-black shadow-inner' : score === 0 ? 'bg-red-600 text-white shadow-inner' : 'bg-[var(--primary)] text-white shadow-inner') : 'bg-[#2a1142] text-[#a890c2] hover:bg-[#3d1a5c]'}`}
+                                  >
+                                    {score}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className={`font-black text-xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                                +{ans.points}
+                              </span>
+                            )}
                           </li>
                         ))
                       )}

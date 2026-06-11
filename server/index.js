@@ -168,7 +168,8 @@ io.on('connection', (socket) => {
       uniqueAnswersCount: {},
       totalSubmissionTime: {},
       validSubmissionsCount: {},
-      roundStartTime: null
+      roundStartTime: null,
+      auditLogs: []
     });
 
     socket.join(roomCode);
@@ -432,7 +433,7 @@ io.on('connection', (socket) => {
     if (rooms.has(roomCode)) {
       const room = rooms.get(roomCode);
       if (room.hostId !== socket.id) return;
-      if (room.roundStatus !== 'ended') return;
+      if (room.roundStatus !== 'ended' && room.roundStatus !== 'review') return;
 
       if (room.validatedAnswers && room.validatedAnswers[playerId] && room.validatedAnswers[playerId][category]) {
         // Manually update the answer's validity flag
@@ -450,6 +451,125 @@ io.on('connection', (socket) => {
         calculateScores(roomCode, room);
         if (typeof callback === 'function') callback({ success: true });
       }
+    }
+  });
+
+  socket.on('update-score', ({ roomCode, playerId, category, newScore }, callback) => {
+    if (rooms.has(roomCode)) {
+      const room = rooms.get(roomCode);
+      if (room.hostId !== socket.id) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      
+      if (room.roundStatus !== 'review') {
+        if (typeof callback === 'function') callback({ success: false, error: 'Cannot modify score outside of review phase.' });
+        return;
+      }
+
+      // Find the specific answer in latestDisplayAnswers
+      const targetAns = room.latestDisplayAnswers[category]?.find(a => a.playerId === playerId);
+      if (!targetAns) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Answer not found' });
+        return;
+      }
+
+      const oldScore = targetAns.points;
+      newScore = Number(newScore);
+      if (isNaN(newScore)) newScore = 0;
+      
+      const scoreDiff = newScore - oldScore;
+
+      // Update the display answer object directly
+      targetAns.points = newScore;
+      targetAns.invalid = (newScore === 0);
+
+      // Update total score
+      if (room.scores.hasOwnProperty(playerId)) {
+        room.scores[playerId] += scoreDiff;
+      } else {
+        room.scores[playerId] = scoreDiff;
+      }
+
+      // Update round history
+      if (room.roundHistory[playerId] && room.roundHistory[playerId].length > 0) {
+        // Round index is currentRound - 1
+        const rIndex = room.currentRound - 1;
+        room.roundHistory[playerId][rIndex] += scoreDiff;
+      }
+
+      // Audit Log
+      room.auditLogs.push({
+        playerId,
+        category,
+        originalScore: oldScore,
+        updatedScore: newScore,
+        hostId: socket.id,
+        timestamp: Date.now()
+      });
+
+      // Update the leaderboard array inline so we don't recalculate the entire round again
+      const lbPlayer = room.latestLeaderboard.find(p => p.playerId === playerId);
+      if (lbPlayer) {
+        lbPlayer.totalScore = room.scores[playerId];
+        lbPlayer.roundScore += scoreDiff;
+        lbPlayer.roundScores = [...room.roundHistory[playerId]];
+      }
+
+      // Re-sort the leaderboard
+      room.latestLeaderboard.sort((a, b) => b.totalScore - a.totalScore);
+
+      io.to(roomCode).emit('score-updated', {
+        playerId,
+        category,
+        newScore,
+        scoreDiff,
+        displayAnswers: room.latestDisplayAnswers,
+        leaderboard: room.latestLeaderboard
+      });
+
+      if (typeof callback === 'function') callback({ success: true });
+    }
+  });
+
+  socket.on('finalize-round', (roomCode, callback) => {
+    if (rooms.has(roomCode)) {
+      const room = rooms.get(roomCode);
+      if (room.hostId !== socket.id) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      if (room.roundStatus !== 'review') {
+        if (typeof callback === 'function') callback({ success: false, error: 'Round not in review phase' });
+        return;
+      }
+
+      room.roundStatus = 'finalized';
+      io.to(roomCode).emit('round-finalized');
+
+      // Check if max rounds reached
+      if (room.currentRound >= room.totalRounds) {
+        room.status = 'ended';
+        
+        // Final leaderboard sort: 1. Total Score (Desc), 2. Unique Answers (Desc), 3. Avg Time (Asc)
+        const finalLeaderboard = [...room.latestLeaderboard].sort((a, b) => {
+          if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+          if (b.uniqueAnswers !== a.uniqueAnswers) return b.uniqueAnswers - a.uniqueAnswers;
+          return a.avgSubmissionTime - b.avgSubmissionTime;
+        });
+
+        const winners = finalLeaderboard.slice(0, 2);
+        room.winners = winners;
+        
+        io.to(roomCode).emit('winner-announced', {
+          winners,
+          finalLeaderboard
+        });
+        logInfo(`ROOM:${roomCode}`, `Game ended after ${room.currentRound} rounds. Winner: ${winners[0]?.fullName || winners[0]?.name}`);
+      }
+
+      if (typeof callback === 'function') callback({ success: true });
     }
   });
 
@@ -573,31 +693,13 @@ io.on('connection', (socket) => {
     room.latestDisplayAnswers = displayAnswers;
     room.latestLeaderboard = leaderboard;
 
+    // Transition to review phase instead of checking for end game immediately
+    room.roundStatus = 'review';
+
     io.to(roomCode).emit('round-results', {
       displayAnswers,
       leaderboard
     });
-
-    // Check if max rounds reached
-    if (room.currentRound >= room.totalRounds) {
-      room.status = 'ended';
-      
-      // Final leaderboard sort: 1. Total Score (Desc), 2. Unique Answers (Desc), 3. Avg Time (Asc)
-      const finalLeaderboard = [...leaderboard].sort((a, b) => {
-        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-        if (b.uniqueAnswers !== a.uniqueAnswers) return b.uniqueAnswers - a.uniqueAnswers;
-        return a.avgSubmissionTime - b.avgSubmissionTime;
-      });
-
-      const winners = finalLeaderboard.slice(0, 2);
-      room.winners = winners;
-      
-      io.to(roomCode).emit('winner-announced', {
-        winners,
-        finalLeaderboard
-      });
-      logInfo(`ROOM:${roomCode}`, `Game ended after ${room.currentRound} rounds. Winner: ${winners[0]?.name}`);
-    }
   }
 
   socket.on('end-game', (roomCode) => {
