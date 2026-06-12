@@ -65,7 +65,7 @@ function basicValidation(answer, currentLetter, category) {
  */
 async function validateRoundSubmissions(submissions, currentLetter) {
     const validatedSubmissions = {};
-    const aiBatch = { place: [], animal: [], thing: [] };
+    const aiBatch = { name: [], place: [], animal: [], thing: [] };
     
     // Object structure to keep track of where the answer maps back
     // aiMap[category][cleanAnswer] = [ { socketId, field: category } ]
@@ -79,19 +79,11 @@ async function validateRoundSubmissions(submissions, currentLetter) {
             thing: { answer: sub.answers.thing || '', valid: false, mode: 'basic' }
         };
 
-        // Name
-        if (basicValidation(sub.answers.name, currentLetter, 'name')) {
-            // Name doesn't require AI, length max 30 check
-            if (sub.answers.name.trim().length <= 30) {
-                validatedSubmissions[socketId].name.valid = true;
-                validatedSubmissions[socketId].name.mode = 'basic';
-            }
-        }
-
-        // Place, Animal, Thing
-        ['place', 'animal', 'thing'].forEach(cat => {
+        ['name', 'place', 'animal', 'thing'].forEach(cat => {
             const rawAns = sub.answers[cat];
             if (basicValidation(rawAns, currentLetter, cat)) {
+                if (cat === 'name' && rawAns.trim().length > 30) return;
+
                 const cleanAns = rawAns.trim().toLowerCase();
                 
                 // Check Cache First
@@ -110,52 +102,162 @@ async function validateRoundSubmissions(submissions, currentLetter) {
     }
 
     // Layer 3: AI Validation
-    if (ai && (aiBatch.place.length > 0 || aiBatch.animal.length > 0 || aiBatch.thing.length > 0)) {
+    if (ai && (aiBatch.name.length > 0 || aiBatch.place.length > 0 || aiBatch.animal.length > 0 || aiBatch.thing.length > 0)) {
         try {
-            const prompt = `Validate the following game answers. You MUST strictly validate each answer against its specific CATEGORY. 
-For example, if the category is "Place", the answer MUST be a real geographic place (city, village, town, state, country, region, landmark). If the answer is a real word but NOT a Place (like "Samosa", which is a food/thing), you MUST mark it as false.
-If the category is "Animal", it MUST be a real animal, not a place or a thing.
+            const systemPrompt = `You are an expert validator for the Indian "Name, Place, Animal, Thing" (NPAT) game.
+Your task is to validate user submissions and determine whether they are acceptable answers.
+RULES:
+GENERAL VALIDATION
+The answer must start with the required letter.
+Ignore capitalization when checking the first letter.
+Minor spelling mistakes may be accepted only if the intended answer is obvious and commonly recognized.
+Reject gibberish, random characters, or made-up words.
+Reject offensive, abusive, or inappropriate content.
+Reject answers that clearly belong to a different category.
+Be moderately strict and prioritize accuracy over generosity.
+NAME CATEGORY
+Accept:
+Common Indian names.
+Common international names.
+Historical figures if the name itself is valid.
+First names, surnames, or full names.
+Names from Indian languages that are commonly used as personal names.
+Reject:
+Titles only (Doctor, Professor, King).
+Nicknames that are not widely recognized names.
+Fictional names that are not commonly known.
+Random words that are not used as personal names.
+PLACE CATEGORY
+Accept:
+Cities, villages, towns, districts, states, and union territories.
+Countries.
+Mountains, rivers, lakes, deserts, forests, and other geographical locations.
+Famous landmarks and monuments.
+Well-known localities and regions in India.
+Place names in Indian languages if they refer to real and verifiable locations.
+Reject:
+Fictional places.
+Generic words such as "road", "street", or "park".
+Places that cannot be reasonably verified.
+Personal descriptions of locations.
+ANIMAL CATEGORY
+Accept:
+Mammals, birds, reptiles, amphibians, fish, and insects.
+Scientifically recognized animals.
+Widely known animal species.
+Common English animal names.
+Reject:
+Animal groups that are too vague.
+Mythical creatures.
+Fictional creatures.
+Hindi, Gujarati, or other regional-language animal names.
+Transliterated Indian-language animal names.
+Animal names written in any language other than English.
+Important:
+Animal answers must be in English only.
+Even if a Hindi or Gujarati animal name refers to a real animal, it must be rejected unless the English name is provided.
+THING CATEGORY
+Accept:
+Physical objects.
+Tools, vehicles, appliances, foods, products, and equipment.
+Everyday items commonly recognized by people.
+Common nouns representing tangible objects.
+Common English names of foods and objects.
+Reject:
+Abstract concepts.
+Emotions.
+Actions or verbs.
+Extremely obscure technical terms unknown to most people.
+Hindi, Gujarati, or other regional-language words for objects or foods.
+Transliterated Indian-language object names.
+Thing names written in any language other than English.
+Important:
+Thing answers must be in English only.
+Even if the object exists, reject it if the answer is provided using a Hindi, Gujarati, or other regional-language word instead of its English name.
+LANGUAGE POLICY
+Name and Place categories may contain valid Indian names and place names from Indian languages if they are real and commonly recognized.
+Animal and Thing categories must be strictly in English.
+Reject Animal and Thing answers written in Hindi, Gujarati, Marathi, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, or any other non-English language.
+Reject transliterated regional-language words in Animal and Thing categories.
+English spelling must be used for Animal and Thing answers.
+INDIAN CONTEXT
+Give preference to Indian usage and common understanding.
+Indian cities, villages, regions, landmarks, and personal names are fully acceptable.
+Do not reject an answer simply because it is Indian-specific.
+However, Animal and Thing categories must still follow the English-only rule.
+AMBIGUOUS CASES
+If an answer is reasonably recognized by the general public, accept it.
+If confidence is low or the answer is highly obscure, reject it.
+If there is uncertainty about whether an Animal or Thing answer is English, reject it.
+Be moderately strict.
 
-Respond strictly in JSON format matching this schema:
+OUTPUT FORMAT
+Always return ONLY valid JSON.
+Return a single JSON object where keys are the specific answer IDs (e.g., "place:oman") and the values are the validation result.
+Example Valid Answer Output:
 {
-  "place": { "oman": true, "fakeplace": false },
-  "animal": { "ox": true, "fakeanimal": false },
-  "thing": { "orange": true, "fakething": false }
+  "name:akbar": {
+    "valid": true,
+    "score": 1,
+    "reason": "Recognized answer in the correct category, starts with the required letter, and follows language rules."
+  }
 }
+Example Invalid Answer Output:
+{
+  "animal:sher": {
+    "valid": false,
+    "score": 0,
+    "reason": "Animal and Thing answers must be provided in English only."
+  }
+}`;
 
-Data to validate:
-Place: ${aiBatch.place.join(', ') || 'none'}
-Animal: ${aiBatch.animal.join(', ') || 'none'}
-Thing: ${aiBatch.thing.join(', ') || 'none'}
+            const batchPayload = [];
+            ['name', 'place', 'animal', 'thing'].forEach(cat => {
+                aiBatch[cat].forEach(ans => {
+                    batchPayload.push({
+                        id: `${cat}:${ans}`,
+                        category: cat,
+                        letter: currentLetter,
+                        answer: ans
+                    });
+                });
+            });
 
-Remember:
-1. Accept rare/uncommon entities if they are real.
-2. Reject gibberish or non-existent entities.
-3. CRITICAL: Reject answers that do not belong to the requested category, even if they are real words.
-Ensure output is strict JSON.`;
+            const userPrompt = `Validate the following answers:\n${JSON.stringify(batchPayload, null, 2)}`;
 
             const response = await ai.chat.completions({
                 model: 'sarvam-105b',
-                messages: [{ role: 'user', content: prompt }]
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ]
             });
 
             // Extract the generated text and parse it
             const content = response.choices[0].message.content;
-            let aiResults = JSON.parse(content);
+            let aiResults = {};
+            try {
+                const cleanContent = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+                aiResults = JSON.parse(cleanContent);
+            } catch (e) {
+                console.error("Failed to parse JSON from Sarvam AI", content);
+                throw e;
+            }
             
             // Populate Cache
-            ['place', 'animal', 'thing'].forEach(cat => {
-                if (aiResults[cat]) {
-                    Object.entries(aiResults[cat]).forEach(([ans, isValid]) => {
-                        validationCache.set(`${cat}:${ans.toLowerCase()}`, isValid === true);
-                    });
-                }
+            ['name', 'place', 'animal', 'thing'].forEach(cat => {
+                aiBatch[cat].forEach(ans => {
+                    const cacheKey = `${cat}:${ans.toLowerCase()}`;
+                    if (aiResults[cacheKey]) {
+                        validationCache.set(cacheKey, aiResults[cacheKey].valid === true);
+                    }
+                });
             });
 
         } catch (err) {
             console.error("AI Validation Failed, falling back", err);
             // Fallback: approve everything in batch
-            ['place', 'animal', 'thing'].forEach(cat => {
+            ['name', 'place', 'animal', 'thing'].forEach(cat => {
                 aiBatch[cat].forEach(ans => {
                     validationCache.set(`${cat}:${ans.toLowerCase()}`, true);
                 });
@@ -163,7 +265,7 @@ Ensure output is strict JSON.`;
         }
     } else if (!ai) {
         // Fallback: approve everything in batch if AI is disabled
-        ['place', 'animal', 'thing'].forEach(cat => {
+        ['name', 'place', 'animal', 'thing'].forEach(cat => {
             aiBatch[cat].forEach(ans => {
                 validationCache.set(`${cat}:${ans.toLowerCase()}`, true);
             });
@@ -172,7 +274,7 @@ Ensure output is strict JSON.`;
 
     // Apply Cache / AI results to validatedSubmissions
     for (const [socketId, sub] of Object.entries(submissions)) {
-        ['place', 'animal', 'thing'].forEach(cat => {
+        ['name', 'place', 'animal', 'thing'].forEach(cat => {
             const rawAns = sub.answers[cat];
             if (basicValidation(rawAns, currentLetter, cat)) {
                 const cleanAns = rawAns.trim().toLowerCase();
