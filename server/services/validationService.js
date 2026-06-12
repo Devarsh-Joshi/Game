@@ -1,10 +1,10 @@
-const { GoogleGenAI } = require('@google/genai');
+const { SarvamAIClient } = require('sarvamai');
 
 let ai;
-if (process.env.GEMINI_API_KEY) {
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+if (process.env.SARVAM_API_KEY) {
+    ai = new SarvamAIClient({ apiSubscriptionKey: process.env.SARVAM_API_KEY });
 } else {
-    console.warn("GEMINI_API_KEY is not set. AI validation will fallback to basic validation.");
+    console.warn("SARVAM_API_KEY is not set. AI validation will fallback to basic validation.");
 }
 
 const validationCache = new Map();
@@ -134,15 +134,14 @@ Remember:
 3. CRITICAL: Reject answers that do not belong to the requested category, even if they are real words.
 Ensure output is strict JSON.`;
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-                config: {
-                    responseMimeType: "application/json",
-                }
+            const response = await ai.chat.completions({
+                model: 'sarvam-105b',
+                messages: [{ role: 'user', content: prompt }]
             });
 
-            let aiResults = JSON.parse(response.text());
+            // Extract the generated text and parse it
+            const content = response.choices[0].message.content;
+            let aiResults = JSON.parse(content);
             
             // Populate Cache
             ['place', 'animal', 'thing'].forEach(cat => {

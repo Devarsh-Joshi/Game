@@ -54,6 +54,8 @@ export default function GameScreen() {
   } : null);
 
   const [editingScoreFor, setEditingScoreFor] = useState(null);
+  const [leaderboardSortMode, setLeaderboardSortMode] = useState('score');
+  const [activeReviewTab, setActiveReviewTab] = useState('name');
 
   const inputsRef = useRef(inputs);
   const isReadyRef = useRef(isReady);
@@ -363,11 +365,19 @@ export default function GameScreen() {
   let currentUserIndex = -1;
   let currentUserFinalRank = null;
   let totalPlayers = 0;
+  let sortedLeaderboard = [];
 
   if (roundStatus === 'finished' && finalWinners) {
-    currentUserIndex = finalWinners.finalLeaderboard.findIndex(p => p.playerId === myPlayerId);
+    sortedLeaderboard = [...finalWinners.finalLeaderboard].sort((a, b) => {
+      if (leaderboardSortMode === 'score') {
+        return b.totalScore - a.totalScore;
+      } else {
+        return a.avgSubmissionTime - b.avgSubmissionTime;
+      }
+    });
+    currentUserIndex = sortedLeaderboard.findIndex(p => p.playerId === myPlayerId);
     currentUserFinalRank = currentUserIndex !== -1 ? currentUserIndex + 1 : null;
-    totalPlayers = finalWinners.finalLeaderboard.length;
+    totalPlayers = sortedLeaderboard.length;
   }
 
   return (
@@ -423,16 +433,33 @@ export default function GameScreen() {
         {/* Main Section */}
         <div className="flex-1 flex flex-col md:min-h-0 max-w-4xl w-full mx-auto bg-[#150722] rounded-xl border-4 border-[var(--primary)] shadow-[6px_6px_0_#ff007f] md:overflow-hidden animate-fade-in" style={{ animationDelay: '0.3s' }}>
           {/* Header row */}
+          <div className="flex justify-end p-2 bg-[#150722] border-b-2 border-[var(--surface-border)]">
+            <div className="flex bg-[#0a0212] rounded-lg p-1 border-2 border-[#2a1142]">
+              <button
+                onClick={() => setLeaderboardSortMode('score')}
+                className={`px-4 py-1 text-xs md:text-sm font-bold uppercase tracking-widest rounded-md transition-all ${leaderboardSortMode === 'score' ? 'bg-[var(--primary)] text-white shadow-[0_2px_0_#ff007f]' : 'text-[#a890c2] hover:text-white'}`}
+              >
+                By Score
+              </button>
+              <button
+                onClick={() => setLeaderboardSortMode('time')}
+                className={`px-4 py-1 text-xs md:text-sm font-bold uppercase tracking-widest rounded-md transition-all ${leaderboardSortMode === 'time' ? 'bg-[var(--secondary)] text-black shadow-[0_2px_0_#008b99]' : 'text-[#a890c2] hover:text-white'}`}
+              >
+                By Speed
+              </button>
+            </div>
+          </div>
           <div className="flex bg-[#2a1142] p-3 font-black text-[#a890c2] uppercase tracking-widest border-b-4 border-[var(--primary)] flex-shrink-0 text-xs md:text-sm">
             <div className="w-12 md:w-16 text-center">Rank</div>
             <div className="flex-1 px-2">Name</div>
             <div className="flex-1 hidden sm:block px-2">Employee ID</div>
             <div className="w-20 md:w-24 text-right pr-2">Score</div>
+            <div className="w-24 text-right pr-2 hidden md:block">Avg Time</div>
           </div>
 
           {/* Scrollable list */}
           <div className="flex-1 md:overflow-y-auto md:custom-scrollbar p-2 space-y-2 bg-[#0a0212]">
-            {finalWinners.finalLeaderboard.map((player, idx) => (
+            {sortedLeaderboard.map((player, idx) => (
               <div key={player.playerId} className="flex items-center bg-[#150722] p-3 rounded-lg border-2 border-[var(--surface-border)] hover:border-[var(--secondary)] transition-colors">
                 <div className="w-12 md:w-16 text-center font-black text-[#a890c2] text-lg">{idx + 1}.</div>
                 <div className="flex-1 px-2 break-words overflow-hidden">
@@ -441,6 +468,9 @@ export default function GameScreen() {
                 </div>
                 <div className="flex-1 hidden sm:block px-2 truncate text-sm text-[#a890c2] font-medium">{player.employeeId || 'N/A'}</div>
                 <div className="w-20 md:w-24 text-right pr-2 font-black text-[var(--accent)] text-xl drop-shadow-[0_2px_0_#000]">{player.totalScore}</div>
+                <div className="w-24 text-right pr-2 font-bold text-[#a890c2] text-sm hidden md:block">
+                  {player.avgSubmissionTime === Infinity ? 'N/A' : (player.avgSubmissionTime / 1000).toFixed(1) + 's'}
+                </div>
               </div>
             ))}
           </div>
@@ -461,10 +491,10 @@ export default function GameScreen() {
         {/* Background handled globally */}
       </div>
 
-      <div className="game-panel p-8 md:p-12 max-w-7xl w-full relative z-10 animate-fade-in flex flex-col md:flex-row gap-8 items-start border-[var(--primary)] shadow-[8px_8px_0_#ff007f]">
+      <div className="game-panel p-8 md:p-12 max-w-[1600px] w-full relative z-10 animate-fade-in flex flex-col md:flex-row gap-8 items-start border-[var(--primary)] shadow-[8px_8px_0_#ff007f]">
 
         {/* Left Column: Game Info */}
-        <div className="w-full md:w-1/3 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-[var(--surface-border)] pb-8 md:pb-0 md:pr-8 text-center sticky top-8">
+        <div className="w-full md:w-1/4 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-[var(--surface-border)] pb-8 md:pb-0 md:pr-8 text-center sticky top-8">
           <div className="mb-4 text-[#a890c2] font-black uppercase tracking-[0.2em] text-sm">
             {currentRound > 0 ? (isHost ? `Round ${currentRound} / ${totalRounds}` : `Round ${currentRound} of ${totalRounds}`) : 'Waiting to Start'}
           </div>
@@ -582,7 +612,7 @@ export default function GameScreen() {
         </div>
 
         {/* Right Column */}
-        <div className="w-full md:w-2/3 md:pr-2">
+        <div className="w-full md:w-3/4 md:pl-2">
           {(roundStatus === 'review' || roundStatus === 'finalized') && results ? (
             <div className="space-y-8 animate-fade-in text-left">
               {(() => {
@@ -726,68 +756,80 @@ export default function GameScreen() {
                 );
               })()}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4 xl:gap-6">
+              {/* Tabbed Navigation (Desktop Only) */}
+              <div className="hidden md:flex gap-4 mb-6 bg-[#150722] p-2 rounded-xl border-4 border-[var(--surface-border)] shadow-[0_4px_0_#2a1142]">
                 {['name', 'place', 'animal', 'thing'].map((cat) => (
-                  <div key={cat} className="game-panel p-5 border-[var(--primary)] shadow-[6px_6px_0_#ff007f]">
-                    <h3 className="text-xl font-black text-[var(--accent)] capitalize mb-4 border-b-2 border-[var(--surface-border)] pb-3 uppercase tracking-widest">{cat}</h3>
-                    <ul className="space-y-3">
-                      {results.displayAnswers[cat].length === 0 ? (
-                        <li className="text-[#a890c2] text-sm font-bold uppercase tracking-widest bg-[#150722] p-4 rounded-xl border-2 border-[var(--surface-border)] shadow-inner text-center">
-                          No valid answers
-                        </li>
-                      ) : (
-                        results.displayAnswers[cat].map((ans, idx) => {
+                  <button
+                    key={cat}
+                    onClick={() => setActiveReviewTab(cat)}
+                    className={`flex-1 min-w-[100px] py-3 px-4 rounded-lg font-black text-base uppercase tracking-widest transition-all ${activeReviewTab === cat ? 'bg-[var(--primary)] text-white shadow-[0_4px_0_#ff007f] transform -translate-y-1' : 'bg-transparent text-[#a890c2] hover:bg-[#2a1142] hover:text-white'}`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Content: Active Tab on Desktop, All Categories stacked on Mobile */}
+              <div className="space-y-8 md:space-y-0">
+                {['name', 'place', 'animal', 'thing'].map((cat) => (
+                  <div key={cat} className={`game-panel p-6 md:p-8 border-[var(--primary)] shadow-[8px_8px_0_#ff007f] md:min-h-[400px] ${activeReviewTab === cat ? 'block' : 'block md:hidden'}`}>
+                    <h3 className="text-2xl md:text-3xl font-black text-[var(--accent)] capitalize mb-6 border-b-4 border-[var(--surface-border)] pb-4 uppercase tracking-tighter flex items-center justify-between">
+                      <span>{cat} Answers</span>
+                      <span className="text-sm font-bold text-[#a890c2] tracking-widest hidden sm:block">{results.displayAnswers[cat].length} Submissions</span>
+                    </h3>
+                    
+                    {results.displayAnswers[cat].length === 0 ? (
+                      <div className="text-[#a890c2] text-lg font-bold uppercase tracking-widest bg-[#150722] p-8 md:p-12 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner text-center">
+                        No valid answers submitted
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6">
+                        {results.displayAnswers[cat].map((ans, idx) => {
                           const isClickable = isHost && roundStatus === 'review';
                           return (
-                            <li
+                            <div
                               key={idx}
                               onClick={() => isClickable ? setEditingScoreFor({ ...ans, category: cat }) : undefined}
-                              className={`flex flex-col gap-3 min-h-[140px] bg-[#150722] p-3 xl:p-4 rounded-xl border-2 relative z-10 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'} ${isClickable ? 'cursor-pointer hover:border-[var(--primary)] hover:shadow-[0_0_15px_rgba(255,0,127,0.3)] transition-all' : ''}`}
+                              className={`flex flex-col gap-4 min-h-[160px] bg-[#150722] p-5 rounded-2xl border-4 relative z-10 ${ans.invalid ? 'border-red-900/80 opacity-80' : 'border-[var(--surface-border)]'} ${isClickable ? 'cursor-pointer hover:border-[var(--primary)] hover:shadow-[0_0_20px_rgba(255,0,127,0.4)] transition-all transform hover:-translate-y-1' : ''}`}
                             >
-                              {/* Player Info */}
-                              <div className="flex items-center gap-2 text-sm text-[#a890c2] font-bold">
-                                <span className="truncate">{ans.fullName || ans.playerName}</span>
-                                {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest">({ans.employeeId})</span>}
+                              {/* Top Row: Player Info & Status */}
+                              <div className="flex justify-between items-start gap-2 border-b-2 border-[#2a1142] pb-3">
+                                <div className="flex flex-col overflow-hidden">
+                                  <span className="text-white font-black text-sm uppercase tracking-wider truncate">{ans.fullName || ans.playerName}</span>
+                                  {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest truncate">ID: {ans.employeeId}</span>}
+                                </div>
+                                <div className="flex-shrink-0">
+                                  {ans.invalid ? (
+                                    <span className="bg-red-950 text-red-500 text-xs px-2 py-1 rounded-md font-black uppercase tracking-widest shadow-inner whitespace-nowrap">✖ Invalid</span>
+                                  ) : (
+                                    <span className="bg-[#003300] text-green-500 text-xs px-2 py-1 rounded-md font-black uppercase tracking-widest shadow-inner whitespace-nowrap">✔ Valid</span>
+                                  )}
+                                </div>
                               </div>
 
-                              {/* Row 1: Validation Status */}
-                              <div>
-                                {ans.invalid ? (
-                                  <span className="text-red-500 text-sm font-bold uppercase tracking-widest">✖ INVALID</span>
-                                ) : (
-                                  <span className="text-green-500 text-sm font-bold uppercase tracking-widest">✔ VALID</span>
-                                )}
+                              {/* Middle Row: Answer Text */}
+                              <div className={`flex-1 flex flex-col justify-center text-xl sm:text-2xl xl:text-3xl font-black text-white break-words ${ans.invalid ? 'text-gray-500 line-through' : 'drop-shadow-[0_2px_0_#000]'}`}>
+                                {ans.answer || '-'}
                               </div>
 
-                              {/* Row 2: Answer Text */}
-                              <div className={`flex-1 flex flex-col justify-center text-xl xl:text-2xl font-bold text-white break-words relative z-20 ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>
-                                {ans.answer}
-                              </div>
-
-                              {/* Row 3: AI Confidence / Warning */}
-                              <div>
-                                {isHost && roundStatus === 'review' && ans.invalid && (
-                                  <div className="text-red-500 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                                    <span className="text-lg">⚠</span>
-                                    <span>SUSPICIOUS</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Footer Score */}
-                              <div className="flex items-center justify-between border-t border-[#2a1142] pt-4 mt-auto">
-                                <span className={`font-black text-3xl ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                              {/* Footer: AI Warning & Score */}
+                              <div className="flex items-end justify-between mt-auto pt-2">
+                                <div>
+                                  {isHost && roundStatus === 'review' && ans.invalid && (
+                                    <div className="text-red-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-1 bg-red-950/50 px-2 py-1 rounded shadow-inner">
+                                      <span>⚠</span> Suspicious
+                                    </div>
+                                  )}
+                                </div>
+                                <span className={`font-black text-3xl sm:text-4xl leading-none ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_3px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
                                   +{ans.points}
                                 </span>
-                                {isClickable && (
-                                  <span className="text-[#a890c2] text-xs font-bold uppercase tracking-widest opacity-50">Click to edit</span>
-                                )}
                               </div>
-                            </li>
+                            </div>
                           );
-                        })
-                      )}
-                    </ul>
+                        })}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -811,6 +853,20 @@ export default function GameScreen() {
                       <span className="text-white">{submissionProgress.received}</span>
                       <span className="text-2xl text-[#a890c2]">/ {submissionProgress.total}</span>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {roundStatus === 'ended' && (
+                <div className="game-panel border-[var(--primary)] shadow-[8px_8px_0_#ff007f] p-8 max-w-xl w-full animate-pulse">
+                  <div className="text-3xl font-black text-white mb-4 uppercase tracking-tighter">Processing Answers</div>
+                  <div className="text-[#a890c2] font-bold text-lg">
+                    Validating player submissions in real-time...
+                  </div>
+                  <div className="mt-6 flex justify-center gap-2">
+                    <div className="w-3 h-3 bg-[var(--accent)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-3 h-3 bg-[var(--accent)] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-3 h-3 bg-[var(--accent)] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                   </div>
                 </div>
               )}
