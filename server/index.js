@@ -806,6 +806,7 @@ io.on('connection', (socket) => {
 
   socket.on('start-play-again-vote', ({ roomCode, playerId }) => {
     try {
+      console.log("Play Again vote started for room:", roomCode);
       if (rooms.has(roomCode)) {
         const room = rooms.get(roomCode);
         if (room.hostId === socket.id || room.hostPlayerId === playerId) {

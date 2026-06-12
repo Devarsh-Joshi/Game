@@ -108,16 +108,16 @@ export default function HostDashboard() {
               Once everyone has joined, you can begin the session.
             </p>
             
-            <div className="bg-[#150722] p-6 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner w-full max-w-xl flex flex-col gap-4">
+            <div className="bg-[#150722] p-6 rounded-2xl border-4 border-[var(--surface-border)] shadow-inner w-full max-w-full overflow-hidden flex flex-col gap-4">
               <div className="text-sm font-bold text-[#ff007f] uppercase tracking-widest text-left">Invite Link</div>
               <div className="bg-[#0a0212] p-4 rounded-xl border-2 border-[var(--primary)] text-[var(--secondary)] font-mono text-sm sm:text-lg break-all truncate">
                 {inviteLink}
               </div>
-              <div className="flex gap-4 mt-2">
-                <button onClick={handleCopyLink} className="flex-1 btn-secondary py-3 text-sm flex justify-center items-center gap-2 relative">
+              <div className="flex flex-col md:flex-row gap-3 mt-2 w-full">
+                <button onClick={handleCopyLink} className="w-full md:flex-1 btn-secondary py-3 text-sm flex justify-center items-center gap-2 relative">
                   {copySuccess ? '✓ Copied' : '📋 Copy Link'}
                 </button>
-                <button onClick={handleShareLink} className="flex-1 btn-primary py-3 text-sm flex justify-center items-center gap-2 bg-[#008b99] hover:bg-[#007080] shadow-[0_4px_0_#004c59]">
+                <button onClick={handleShareLink} className="w-full md:flex-1 btn-primary py-3 text-sm flex justify-center items-center gap-2 bg-[#008b99] hover:bg-[#007080] shadow-[0_4px_0_#004c59]">
                   🔗 Share
                 </button>
               </div>

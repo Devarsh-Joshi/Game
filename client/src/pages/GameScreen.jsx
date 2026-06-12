@@ -53,6 +53,8 @@ export default function GameScreen() {
     finalLeaderboard: reconnectState.leaderboard
   } : null);
 
+  const [editingScoreFor, setEditingScoreFor] = useState(null);
+
   const inputsRef = useRef(inputs);
   const isReadyRef = useRef(isReady);
 
@@ -159,6 +161,7 @@ export default function GameScreen() {
     };
 
     const handlePlayAgainVoteStarted = () => {
+      console.log("Vote modal received");
       setVotingActive(true);
       setVoteTimeLeft(10);
       setVoteStats({ yesCount: isHost ? 1 : 0, noCount: 0, totalCount: 0 });
@@ -253,6 +256,7 @@ export default function GameScreen() {
   };
 
   const handleStartPlayAgainVote = () => {
+    console.log("Host started Play Again vote");
     socket.emit('start-play-again-vote', { roomCode: roomId, playerId: localStorage.getItem('playerId') });
   };
 
@@ -579,16 +583,17 @@ export default function GameScreen() {
                         <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-4 border-b-2 border-[#2a1142] pb-2">Top Players</h3>
                         <div className="space-y-2">
                           {top5.map((p, i) => (
-                            <div key={p.playerId} className={`flex items-center justify-between p-2 rounded-lg ${p.playerId === myPlayerId ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
-                              <div className="flex items-center gap-3">
-                                <span className="w-8 text-center font-black text-lg">
+                            <div key={p.playerId} className={`flex items-start justify-between p-2 rounded-lg gap-2 ${p.playerId === myPlayerId ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
+                              <div className="flex items-start gap-3 flex-1 min-w-0">
+                                <span className="w-8 text-center font-black text-lg mt-0.5 flex-shrink-0">
                                   {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-[#a890c2]">#{i + 1}</span>}
                                 </span>
-                                <span className={`font-bold break-words overflow-hidden ${p.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
-                                  {p.fullName} {p.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-0.5 rounded ml-2 whitespace-nowrap">(YOU)</span>}
-                                </span>
+                                <div className={`font-bold flex flex-wrap items-center gap-2 ${p.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'} flex-1 min-w-0`}>
+                                  <span className="truncate max-w-full">{p.fullName}</span>
+                                  {p.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-0.5 rounded whitespace-nowrap flex-shrink-0">(YOU)</span>}
+                                </div>
                               </div>
-                              <span className="font-black text-[var(--accent)]">{p.totalScore}</span>
+                              <span className="font-black text-[var(--accent)] flex-shrink-0 mt-0.5">{p.totalScore}</span>
                             </div>
                           ))}
                         </div>
@@ -608,12 +613,15 @@ export default function GameScreen() {
                           <div className="space-y-2 mt-auto">
                             <div className="text-xs font-bold text-[#a890c2] uppercase tracking-widest mb-2">Neighbouring Players</div>
                             {neighbors.map((p) => (
-                              <div key={p.playerId} className={`flex items-center justify-between p-2 rounded-lg ${p.isMe ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[#a890c2] font-black w-8 text-center">#{p.actualRank}</span>
-                                  <span className={`font-bold break-words overflow-hidden ${p.isMe ? 'text-[var(--primary)]' : 'text-white'}`}>{p.fullName} {p.isMe && <span className="text-xs bg-[var(--primary)] text-white px-1.5 py-0.5 rounded ml-1 whitespace-nowrap">(YOU)</span>}</span>
+                              <div key={p.playerId} className={`flex items-start justify-between p-2 rounded-lg gap-2 ${p.isMe ? 'bg-[#3d1a5c] border border-[var(--primary)] shadow-[0_0_10px_#ff007f]' : 'bg-[#150722] border border-[var(--surface-border)]'}`}>
+                                <div className="flex items-start gap-2 flex-1 min-w-0">
+                                  <span className="text-[#a890c2] font-black w-8 text-center mt-0.5 flex-shrink-0">#{p.actualRank}</span>
+                                  <div className={`font-bold flex flex-wrap items-center gap-2 ${p.isMe ? 'text-[var(--primary)]' : 'text-white'} flex-1 min-w-0`}>
+                                    <span className="truncate max-w-full">{p.fullName}</span>
+                                    {p.isMe && <span className="text-xs bg-[var(--primary)] text-white px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">(YOU)</span>}
+                                  </div>
                                 </div>
-                                <span className="font-black text-[var(--accent)] text-sm">{p.totalScore}</span>
+                                <span className="font-black text-[var(--accent)] text-sm flex-shrink-0 mt-0.5">{p.totalScore}</span>
                               </div>
                             ))}
                           </div>
@@ -636,17 +644,18 @@ export default function GameScreen() {
                       <div className="md:hidden space-y-4 pr-2">
                         {leaderboard.map((player, idx) => (
                           <div key={player.playerId} className={`flex flex-col p-4 rounded-xl border-2 shadow-inner ${player.playerId === myPlayerId ? 'bg-[#3d1a5c] border-[var(--primary)] shadow-[0_0_15px_#ff007f]' : 'bg-[#150722] border-[var(--surface-border)]'}`}>
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-3">
-                                <span className="text-[#a890c2] font-black text-2xl">#{idx + 1}</span>
-                                <div className="flex-1 min-w-0">
-                                  <div className={`font-bold text-xl truncate ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
-                                    {player.fullName} {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded ml-2 whitespace-nowrap">(YOU)</span>}
+                            <div className="flex items-start justify-between mb-3 gap-3">
+                              <div className="flex items-start gap-3 flex-1 min-w-0">
+                                <span className="text-[#a890c2] font-black text-2xl mt-0.5 flex-shrink-0">#{idx + 1}</span>
+                                <div className="flex-1 min-w-0 flex flex-col">
+                                  <div className={`font-bold text-xl flex flex-wrap items-center gap-2 ${player.playerId === myPlayerId ? 'text-[var(--primary)]' : 'text-white'}`}>
+                                    <span className="truncate max-w-full">{player.fullName}</span>
+                                    {player.playerId === myPlayerId && <span className="text-xs bg-[var(--primary)] text-white px-2 py-1 rounded whitespace-nowrap flex-shrink-0">(YOU)</span>}
                                   </div>
-                                  <div className="text-xs text-[#a890c2] font-bold uppercase tracking-widest">{player.employeeId}</div>
+                                  <div className="text-xs text-[#a890c2] font-bold uppercase tracking-widest mt-1">{player.employeeId}</div>
                                 </div>
                               </div>
-                              <span className="text-[var(--primary)] font-black text-sm bg-[#2a1142] px-3 py-1 rounded-lg shadow-inner">+{player.roundScore}</span>
+                              <span className="flex-shrink-0 text-[var(--primary)] font-black text-sm bg-[#2a1142] px-3 py-1 rounded-lg shadow-inner mt-1">+{player.roundScore}</span>
                             </div>
                             <div className="flex items-center justify-between border-t border-[#2a1142] pt-3">
                               <span className="text-xs font-bold text-[#a890c2] uppercase tracking-widest">Total Score</span>
@@ -699,31 +708,53 @@ export default function GameScreen() {
                         </li>
                       ) : (
                         results.displayAnswers[cat].map((ans, idx) => (
-                          <li key={idx} className={`flex items-center justify-between text-lg bg-[#150722] p-3 rounded-xl border-2 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
-                            <span className="text-white font-medium flex-1 min-w-0 pr-2 break-words overflow-hidden">
-                              <span className="font-bold text-white max-w-[120px] truncate">{ans.fullName || ans.playerName}</span>
-                              <span className="text-[var(--accent)] text-[10px] ml-1 uppercase tracking-widest">{ans.employeeId ? `(${ans.employeeId})` : ''}</span>
-                              <span className={`text-lg break-words inline-block ml-2 ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>{ans.answer}</span>
-                              {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-2 inline-block whitespace-nowrap">❌ Invalid</span>}
-                            </span>
-                            
-                            {isHost && roundStatus === 'review' ? (
-                              <div className="flex items-center gap-1 bg-[#0a0212] p-1 rounded-lg border border-[var(--surface-border)]">
-                                {[10, 5, 0].map(score => (
-                                  <button
-                                    key={score}
-                                    onClick={() => handleUpdateScore(ans.playerId, cat, score)}
-                                    className={`w-8 h-8 rounded text-sm font-black transition-all ${ans.points === score ? (score === 10 ? 'bg-[var(--accent)] text-black shadow-inner' : score === 0 ? 'bg-red-600 text-white shadow-inner' : 'bg-[var(--primary)] text-white shadow-inner') : 'bg-[#2a1142] text-[#a890c2] hover:bg-[#3d1a5c]'}`}
-                                  >
-                                    {score}
-                                  </button>
-                                ))}
+                          <li key={idx} className={`flex flex-col min-h-[120px] justify-between text-lg bg-[#150722] p-4 rounded-xl border-2 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
+                            {/* Answer Text Section */}
+                            <div className="w-full mb-4 flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-bold text-[#a890c2] text-sm truncate">{ans.fullName || ans.playerName}</span>
+                                {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest">({ans.employeeId})</span>}
+                                {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-auto whitespace-nowrap">❌ Invalid</span>}
                               </div>
-                            ) : (
-                              <span className={`font-black text-xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
-                                +{ans.points}
-                              </span>
-                            )}
+                              <div className={`text-xl font-black text-white break-words ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>
+                                {ans.answer}
+                              </div>
+                            </div>
+                            
+                            {/* Actions / Bottom Row */}
+                            <div className="w-full flex items-center justify-between border-t border-[#2a1142] pt-3 mt-auto">
+                              {isHost && roundStatus === 'review' ? (
+                                <>
+                                  <div className="flex items-center gap-2">
+                                    {ans.invalid && (
+                                      <span className="text-red-500 text-xs font-bold uppercase tracking-widest flex items-center gap-1 animate-pulse bg-red-500/10 px-2 py-1 rounded">
+                                        <span className="text-sm">⚠️</span>
+                                        <span>Suspicious</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className={`font-black text-2xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                                      +{ans.points}
+                                    </span>
+                                    <button
+                                      onClick={() => setEditingScoreFor({ ...ans, category: cat })}
+                                      className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#2a1142] text-white hover:bg-[var(--primary)] transition-colors border border-[var(--surface-border)] shadow-inner"
+                                      title="Edit Score"
+                                    >
+                                      ✏️
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex-1"></div>
+                                  <span className={`font-black text-2xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                                    +{ans.points}
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </li>
                         ))
                       )}
@@ -734,10 +765,7 @@ export default function GameScreen() {
             </div>
           ) : isHost ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-4">
-              <h2 className="text-4xl font-black text-white mb-4 uppercase tracking-tighter">Host Controls</h2>
-              <p className="text-[#a890c2] font-medium text-lg mb-12 max-w-md">
-                You are managing the game. Players will see the timer and input fields on their screens.
-              </p>
+              <h2 className="text-4xl font-black text-white mb-8 uppercase tracking-tighter">Host Controls</h2>
 
               {roundStatus === 'active' && (
                 <div className="flex flex-col sm:flex-row gap-6 w-full max-w-xl">
@@ -1011,6 +1039,54 @@ export default function GameScreen() {
           </div>
         </div>
       )}
+      {editingScoreFor && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#150722] border-4 border-[var(--primary)] shadow-[8px_8px_0_#ff007f] rounded-2xl p-6 md:p-8 max-w-md w-full animate-bounce-in relative">
+            <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter border-b-2 border-[#2a1142] pb-2">
+              Edit Score
+            </h2>
+            <div className="text-[#a890c2] font-bold text-sm uppercase tracking-widest mb-6">
+              Category: <span className="text-[var(--accent)]">{editingScoreFor.category}</span>
+            </div>
+
+            <div className="bg-[#0a0212] border-2 border-[var(--surface-border)] rounded-xl p-4 mb-6">
+              <div className="text-xs text-[#a890c2] font-bold uppercase tracking-widest mb-1">Player</div>
+              <div className="text-lg font-bold text-white mb-4">{editingScoreFor.fullName || editingScoreFor.playerName}</div>
+
+              <div className="text-xs text-[#a890c2] font-bold uppercase tracking-widest mb-1">Answer</div>
+              <div className="text-xl font-black text-white break-words">{editingScoreFor.answer}</div>
+            </div>
+
+            <div className="mb-6">
+              <div className="text-xs text-[#a890c2] font-bold uppercase tracking-widest mb-2">Select New Score</div>
+              <div className="flex justify-between gap-3">
+                {[10, 5, 0].map(score => (
+                  <button
+                    key={score}
+                    onClick={() => {
+                      handleUpdateScore(editingScoreFor.playerId, editingScoreFor.category, score);
+                      setEditingScoreFor(null);
+                    }}
+                    className={`flex-1 py-4 rounded-xl border-2 font-black text-xl transition-all hover:scale-105 active:scale-95 ${editingScoreFor.points === score ? (score === 10 ? 'bg-[var(--accent)] text-black border-transparent shadow-[inset_0_-4px_0_rgba(0,0,0,0.2)]' : score === 0 ? 'bg-red-600 text-white border-transparent shadow-[inset_0_-4px_0_rgba(0,0,0,0.2)]' : 'bg-[var(--primary)] text-white border-transparent shadow-[inset_0_-4px_0_rgba(0,0,0,0.2)]') : 'bg-[#2a1142] text-[#a890c2] border-[#3d1a5c] hover:border-[var(--primary)] hover:text-white'}`}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => setEditingScoreFor(null)}
+                className="px-6 py-2 rounded-lg font-bold uppercase tracking-widest text-sm bg-transparent border-2 border-[#2a1142] text-[#a890c2] hover:bg-[#2a1142] hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
