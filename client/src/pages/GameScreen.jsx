@@ -77,10 +77,31 @@ export default function GameScreen() {
   }, [currentRound, roundStatus]);
 
   useEffect(() => {
-    if (!socket.connected) {
-      navigate('/');
-      return;
-    }
+    const handleSocketConnect = () => {
+      console.log("Socket reconnected. Attempting to rejoin room...");
+      const playerId = localStorage.getItem('playerId');
+      if (playerId) {
+        socket.emit('reconnect-player', { roomCode: roomId, playerId }, (res) => {
+          if (res.success) {
+            setIsHost(res.isHost);
+            setTotalRounds(res.totalRounds);
+            setRoundDuration(res.roundDuration);
+            setCurrentRound(res.currentRound);
+            setTimeLeft(res.timeLeft || res.roundDuration);
+            setCurrentLetter(res.currentLetter);
+            setRoundStatus(res.roundStatus);
+            if (res.displayAnswers && res.leaderboard) {
+              setResults({ displayAnswers: res.displayAnswers, leaderboard: res.leaderboard });
+            }
+            if (res.winners) setFinalWinners(res.winners);
+          } else {
+            console.error("Reconnection failed:", res.error);
+            localStorage.clear();
+            navigate('/');
+          }
+        });
+      }
+    };
 
     const handleGameEnded = () => {
       alert("The session has ended.");
@@ -193,6 +214,7 @@ export default function GameScreen() {
       }
     };
 
+    socket.on('connect', handleSocketConnect);
     socket.on('game-ended', handleGameEnded);
     socket.on('host-disconnected', handleGameEnded);
     socket.on('round-started', handleRoundStarted);
@@ -211,6 +233,7 @@ export default function GameScreen() {
     socket.on('play-again-vote-ended', handlePlayAgainVoteEnded);
 
     return () => {
+      socket.off('connect', handleSocketConnect);
       socket.off('game-ended', handleGameEnded);
       socket.off('host-disconnected', handleGameEnded);
       socket.off('round-started', handleRoundStarted);
@@ -701,7 +724,7 @@ export default function GameScreen() {
                 );
               })()}
 
-              <div className="grid grid-grid-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4 xl:gap-6">
                 {['name', 'place', 'animal', 'thing'].map((cat) => (
                   <div key={cat} className="game-panel p-5 border-[var(--primary)] shadow-[6px_6px_0_#ff007f]">
                     <h3 className="text-xl font-black text-[var(--accent)] capitalize mb-4 border-b-2 border-[var(--surface-border)] pb-3 uppercase tracking-widest">{cat}</h3>
@@ -714,51 +737,51 @@ export default function GameScreen() {
                         results.displayAnswers[cat].map((ans, idx) => {
                           const isClickable = isHost && roundStatus === 'review';
                           return (
-                          <li 
-                            key={idx} 
-                            onClick={() => isClickable ? setEditingScoreFor({ ...ans, category: cat }) : undefined}
-                            className={`flex flex-col gap-4 min-h-[160px] bg-[#150722] p-4 rounded-xl border-2 relative z-10 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'} ${isClickable ? 'cursor-pointer hover:border-[var(--primary)] hover:shadow-[0_0_15px_rgba(255,0,127,0.3)] transition-all' : ''}`}
-                          >
-                            {/* Player Info */}
-                            <div className="flex items-center gap-2 text-sm text-[#a890c2] font-bold">
-                              <span className="truncate">{ans.fullName || ans.playerName}</span>
-                              {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest">({ans.employeeId})</span>}
-                            </div>
+                            <li
+                              key={idx}
+                              onClick={() => isClickable ? setEditingScoreFor({ ...ans, category: cat }) : undefined}
+                              className={`flex flex-col gap-3 min-h-[140px] bg-[#150722] p-3 xl:p-4 rounded-xl border-2 relative z-10 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'} ${isClickable ? 'cursor-pointer hover:border-[var(--primary)] hover:shadow-[0_0_15px_rgba(255,0,127,0.3)] transition-all' : ''}`}
+                            >
+                              {/* Player Info */}
+                              <div className="flex items-center gap-2 text-sm text-[#a890c2] font-bold">
+                                <span className="truncate">{ans.fullName || ans.playerName}</span>
+                                {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest">({ans.employeeId})</span>}
+                              </div>
 
-                            {/* Row 1: Validation Status */}
-                            <div>
-                              {ans.invalid ? (
-                                <span className="text-red-500 text-sm font-bold uppercase tracking-widest">✖ INVALID</span>
-                              ) : (
-                                <span className="text-green-500 text-sm font-bold uppercase tracking-widest">✔ VALID</span>
-                              )}
-                            </div>
+                              {/* Row 1: Validation Status */}
+                              <div>
+                                {ans.invalid ? (
+                                  <span className="text-red-500 text-sm font-bold uppercase tracking-widest">✖ INVALID</span>
+                                ) : (
+                                  <span className="text-green-500 text-sm font-bold uppercase tracking-widest">✔ VALID</span>
+                                )}
+                              </div>
 
-                            {/* Row 2: Answer Text */}
-                            <div className={`flex-1 flex flex-col justify-center text-2xl font-bold text-white break-words overflow-wrap-anywhere relative z-20 ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>
-                              {ans.answer}
-                            </div>
-                            
-                            {/* Row 3: AI Confidence / Warning */}
-                            <div>
-                              {isHost && roundStatus === 'review' && ans.invalid && (
-                                <div className="text-red-500 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                                  <span className="text-lg">⚠</span>
-                                  <span>SUSPICIOUS</span>
-                                </div>
-                              )}
-                            </div>
+                              {/* Row 2: Answer Text */}
+                              <div className={`flex-1 flex flex-col justify-center text-xl xl:text-2xl font-bold text-white break-words relative z-20 ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>
+                                {ans.answer}
+                              </div>
 
-                            {/* Footer Score */}
-                            <div className="flex items-center justify-between border-t border-[#2a1142] pt-4 mt-auto">
-                              <span className={`font-black text-3xl ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
-                                +{ans.points}
-                              </span>
-                              {isClickable && (
-                                <span className="text-[#a890c2] text-xs font-bold uppercase tracking-widest opacity-50">Click to edit</span>
-                              )}
-                            </div>
-                          </li>
+                              {/* Row 3: AI Confidence / Warning */}
+                              <div>
+                                {isHost && roundStatus === 'review' && ans.invalid && (
+                                  <div className="text-red-500 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                                    <span className="text-lg">⚠</span>
+                                    <span>SUSPICIOUS</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Footer Score */}
+                              <div className="flex items-center justify-between border-t border-[#2a1142] pt-4 mt-auto">
+                                <span className={`font-black text-3xl ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                                  +{ans.points}
+                                </span>
+                                {isClickable && (
+                                  <span className="text-[#a890c2] text-xs font-bold uppercase tracking-widest opacity-50">Click to edit</span>
+                                )}
+                              </div>
+                            </li>
                           );
                         })
                       )}
@@ -952,7 +975,7 @@ export default function GameScreen() {
             ) : (
               <>
                 <p className="text-[#a890c2] font-medium text-lg mb-8">
-                  The host wants to start another game.<br/><br/>Do you want to continue?
+                  The host wants to start another game.<br /><br />Do you want to continue?
                 </p>
 
                 {hasVoted ? (

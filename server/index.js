@@ -233,6 +233,7 @@ io.on('connection', (socket) => {
       const newPlayer = {
         id: socket.id, // current socket connection
         playerId,      // permanent identifier
+        connected: true,
         employeeId: normalizedEmployeeId,
         firstName: fn,
         lastName: ln,
@@ -303,6 +304,7 @@ io.on('connection', (socket) => {
         const playerIndex = room.players.findIndex(p => p.playerId === playerId);
         if (playerIndex !== -1) {
           room.players[playerIndex].id = socket.id; // Update player socket ID
+          room.players[playerIndex].connected = true; // Mark as connected again
           isPlayer = true;
         }
         
@@ -941,8 +943,8 @@ io.on('connection', (socket) => {
         // Check if a player disconnected
         const playerIndex = room.players.findIndex(p => p.id === socket.id);
         if (playerIndex !== -1) {
-          const removedPlayer = room.players.splice(playerIndex, 1)[0];
-          logInfo(`ROOM:${roomCode}`, `Player ${removedPlayer.name} disconnected.`);
+          room.players[playerIndex].connected = false;
+          logInfo(`ROOM:${roomCode}`, `Player ${room.players[playerIndex].name} disconnected.`);
           // Notify remaining users
           io.to(roomCode).emit('player-list-update', room.players);
         }
