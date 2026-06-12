@@ -161,7 +161,8 @@ export default function GameScreen() {
     };
 
     const handlePlayAgainVoteStarted = () => {
-      console.log("Vote modal received");
+      console.log("Received play-again-vote-started");
+      console.log("Voting modal opened");
       setVotingActive(true);
       setVoteTimeLeft(10);
       setVoteStats({ yesCount: isHost ? 1 : 0, noCount: 0, totalCount: 0 });
@@ -256,7 +257,7 @@ export default function GameScreen() {
   };
 
   const handleStartPlayAgainVote = () => {
-    console.log("Host started Play Again vote");
+    console.log("Play Again vote started");
     socket.emit('start-play-again-vote', { roomCode: roomId, playerId: localStorage.getItem('playerId') });
   };
 
@@ -553,7 +554,7 @@ export default function GameScreen() {
         </div>
 
         {/* Right Column */}
-        <div className="w-full md:w-2/3 md:max-h-[80vh] md:overflow-y-auto md:pr-2 md:custom-scrollbar">
+        <div className="w-full md:w-2/3 md:pr-2">
           {(roundStatus === 'review' || roundStatus === 'finalized') && results ? (
             <div className="space-y-8 animate-fade-in text-left">
               {(() => {
@@ -708,51 +709,50 @@ export default function GameScreen() {
                         </li>
                       ) : (
                         results.displayAnswers[cat].map((ans, idx) => (
-                          <li key={idx} className={`flex flex-col min-h-[120px] justify-between text-lg bg-[#150722] p-4 rounded-xl border-2 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
-                            {/* Answer Text Section */}
-                            <div className="w-full mb-4 flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-bold text-[#a890c2] text-sm truncate">{ans.fullName || ans.playerName}</span>
-                                {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest">({ans.employeeId})</span>}
-                                {ans.invalid && <span className="text-red-500 text-xs font-bold uppercase tracking-widest ml-auto whitespace-nowrap">❌ Invalid</span>}
-                              </div>
-                              <div className={`text-xl font-black text-white break-words ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>
-                                {ans.answer}
-                              </div>
+                          <li key={idx} className={`flex flex-col gap-4 min-h-[160px] bg-[#150722] p-4 rounded-xl border-2 relative z-10 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
+                            {/* Player Info */}
+                            <div className="flex items-center gap-2 text-sm text-[#a890c2] font-bold">
+                              <span className="truncate">{ans.fullName || ans.playerName}</span>
+                              {ans.employeeId && <span className="text-[var(--accent)] text-[10px] uppercase tracking-widest">({ans.employeeId})</span>}
+                            </div>
+
+                            {/* Row 1: Validation Status */}
+                            <div>
+                              {ans.invalid ? (
+                                <span className="text-red-500 text-sm font-bold uppercase tracking-widest">✖ INVALID</span>
+                              ) : (
+                                <span className="text-green-500 text-sm font-bold uppercase tracking-widest">✔ VALID</span>
+                              )}
+                            </div>
+
+                            {/* Row 2: Answer Text */}
+                            <div className={`flex-1 flex flex-col justify-center text-2xl font-bold text-white break-words overflow-wrap-anywhere relative z-20 ${ans.invalid ? 'text-gray-400 line-through' : ''}`}>
+                              {ans.answer}
                             </div>
                             
-                            {/* Actions / Bottom Row */}
-                            <div className="w-full flex items-center justify-between border-t border-[#2a1142] pt-3 mt-auto">
-                              {isHost && roundStatus === 'review' ? (
-                                <>
-                                  <div className="flex items-center gap-2">
-                                    {ans.invalid && (
-                                      <span className="text-red-500 text-xs font-bold uppercase tracking-widest flex items-center gap-1 animate-pulse bg-red-500/10 px-2 py-1 rounded">
-                                        <span className="text-sm">⚠️</span>
-                                        <span>Suspicious</span>
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <span className={`font-black text-2xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
-                                      +{ans.points}
-                                    </span>
-                                    <button
-                                      onClick={() => setEditingScoreFor({ ...ans, category: cat })}
-                                      className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#2a1142] text-white hover:bg-[var(--primary)] transition-colors border border-[var(--surface-border)] shadow-inner"
-                                      title="Edit Score"
-                                    >
-                                      ✏️
-                                    </button>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="flex-1"></div>
-                                  <span className={`font-black text-2xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
-                                    +{ans.points}
-                                  </span>
-                                </>
+                            {/* Row 3: AI Confidence / Warning */}
+                            <div>
+                              {isHost && roundStatus === 'review' && ans.invalid && (
+                                <div className="text-red-500 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                                  <span className="text-lg">⚠</span>
+                                  <span>SUSPICIOUS</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Footer Actions */}
+                            <div className="flex flex-col sm:flex-row items-center justify-between border-t border-[#2a1142] pt-4 mt-auto gap-4">
+                              <span className={`font-black text-3xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                                +{ans.points}
+                              </span>
+                              
+                              {isHost && roundStatus === 'review' && (
+                                <button
+                                  onClick={() => setEditingScoreFor({ ...ans, category: cat })}
+                                  className="w-full sm:w-auto px-6 py-2 flex items-center gap-2 justify-center rounded-lg bg-[#2a1142] text-white hover:bg-[var(--primary)] font-bold text-sm transition-colors border border-[var(--surface-border)] shadow-inner"
+                                >
+                                  ✏️ Edit
+                                </button>
                               )}
                             </div>
                           </li>
@@ -948,17 +948,17 @@ export default function GameScreen() {
             ) : (
               <>
                 <p className="text-[#a890c2] font-medium text-lg mb-8">
-                  The host wants to start another game. Click Play Again within 10 seconds if you want to continue.
+                  The host wants to start another game.<br/><br/>Do you want to continue?
                 </p>
 
                 {hasVoted ? (
-                  <div className="bg-green-500/10 border-2 border-green-500 rounded-xl p-4 mb-8 text-green-400 font-bold">
-                    Vote recorded. Waiting for timer...
+                  <div className="bg-green-500/10 border-2 border-green-500 rounded-xl p-4 mb-8 text-green-400 font-bold flex items-center justify-center gap-2">
+                    <span className="text-xl">✓</span> Vote Submitted
                   </div>
                 ) : (
                   <button
                     onClick={handleCastVote}
-                    className="btn-primary w-full py-4 mb-8 bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600]"
+                    className="btn-primary w-full py-4 mb-8 bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600] font-black uppercase tracking-widest text-lg"
                   >
                     Play Again
                   </button>

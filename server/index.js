@@ -806,7 +806,6 @@ io.on('connection', (socket) => {
 
   socket.on('start-play-again-vote', ({ roomCode, playerId }) => {
     try {
-      console.log("Play Again vote started for room:", roomCode);
       if (rooms.has(roomCode)) {
         const room = rooms.get(roomCode);
         if (room.hostId === socket.id || room.hostPlayerId === playerId) {
@@ -815,6 +814,7 @@ io.on('connection', (socket) => {
           room.playAgainVotes[room.hostPlayerId] = 'yes';
 
           let timeLeft = 10;
+          console.log("Broadcasting play-again-vote-started");
           io.to(roomCode).emit('play-again-vote-started');
 
           if (room.playAgainTimer) clearInterval(room.playAgainTimer);
