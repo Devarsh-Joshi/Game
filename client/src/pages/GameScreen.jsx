@@ -360,13 +360,20 @@ export default function GameScreen() {
     }, 3000);
   };
 
-  if (roundStatus === 'finished' && finalWinners) {
-    const currentUserIndex = finalWinners.finalLeaderboard.findIndex(p => p.playerId === myPlayerId);
-    const currentUserFinalRank = currentUserIndex !== -1 ? currentUserIndex + 1 : null;
-    const totalPlayers = finalWinners.finalLeaderboard.length;
+  let currentUserIndex = -1;
+  let currentUserFinalRank = null;
+  let totalPlayers = 0;
 
-    return (
-      <div className="min-h-screen flex flex-col p-4 md:p-8 relative">
+  if (roundStatus === 'finished' && finalWinners) {
+    currentUserIndex = finalWinners.finalLeaderboard.findIndex(p => p.playerId === myPlayerId);
+    currentUserFinalRank = currentUserIndex !== -1 ? currentUserIndex + 1 : null;
+    totalPlayers = finalWinners.finalLeaderboard.length;
+  }
+
+  return (
+    <>
+      {roundStatus === 'finished' && finalWinners ? (
+        <div className="min-h-screen flex flex-col p-4 md:p-8 relative">
         <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
           {/* Background handled globally */}
         </div>
@@ -448,13 +455,8 @@ export default function GameScreen() {
           <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#800000] text-white w-full sm:w-auto">Return Home</button>
         </div>
       </div>
-    );
-  }
-
-  console.log("Modal State:", votingActive);
-
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative">
+      ) : (
+      <div className="min-h-screen flex items-center justify-center p-4 relative">
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
         {/* Background handled globally */}
       </div>
@@ -891,6 +893,8 @@ export default function GameScreen() {
         </div>
 
       </div>
+      </div>
+      )}
 
       {/* Modals */}
       {showRestartModal && (
@@ -1113,7 +1117,6 @@ export default function GameScreen() {
           </div>
         </div>
       )}
-
-    </div>
+    </>
   );
 }
