@@ -161,8 +161,8 @@ export default function GameScreen() {
     };
 
     const handlePlayAgainVoteStarted = () => {
-      console.log("Received play-again-vote-started");
-      console.log("Voting modal opened");
+      console.log("PLAYER: Vote event received");
+      console.log("PLAYER: Opening vote modal");
       setVotingActive(true);
       setVoteTimeLeft(10);
       setVoteStats({ yesCount: isHost ? 1 : 0, noCount: 0, totalCount: 0 });
@@ -257,7 +257,8 @@ export default function GameScreen() {
   };
 
   const handleStartPlayAgainVote = () => {
-    console.log("Play Again vote started");
+    console.log("HOST: Play Again clicked");
+    console.log("HOST: Emitting start-play-again-vote");
     socket.emit('start-play-again-vote', { roomCode: roomId, playerId: localStorage.getItem('playerId') });
   };
 
@@ -426,6 +427,8 @@ export default function GameScreen() {
       </div>
     );
   }
+
+  console.log("Modal State:", votingActive);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative">
@@ -708,8 +711,14 @@ export default function GameScreen() {
                           No valid answers
                         </li>
                       ) : (
-                        results.displayAnswers[cat].map((ans, idx) => (
-                          <li key={idx} className={`flex flex-col gap-4 min-h-[160px] bg-[#150722] p-4 rounded-xl border-2 relative z-10 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'}`}>
+                        results.displayAnswers[cat].map((ans, idx) => {
+                          const isClickable = isHost && roundStatus === 'review';
+                          return (
+                          <li 
+                            key={idx} 
+                            onClick={() => isClickable ? setEditingScoreFor({ ...ans, category: cat }) : undefined}
+                            className={`flex flex-col gap-4 min-h-[160px] bg-[#150722] p-4 rounded-xl border-2 relative z-10 ${ans.invalid ? 'border-red-900/50 opacity-80' : 'border-[var(--surface-border)]'} ${isClickable ? 'cursor-pointer hover:border-[var(--primary)] hover:shadow-[0_0_15px_rgba(255,0,127,0.3)] transition-all' : ''}`}
+                          >
                             {/* Player Info */}
                             <div className="flex items-center gap-2 text-sm text-[#a890c2] font-bold">
                               <span className="truncate">{ans.fullName || ans.playerName}</span>
@@ -740,23 +749,18 @@ export default function GameScreen() {
                               )}
                             </div>
 
-                            {/* Footer Actions */}
-                            <div className="flex flex-col sm:flex-row items-center justify-between border-t border-[#2a1142] pt-4 mt-auto gap-4">
-                              <span className={`font-black text-3xl flex-shrink-0 ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
+                            {/* Footer Score */}
+                            <div className="flex items-center justify-between border-t border-[#2a1142] pt-4 mt-auto">
+                              <span className={`font-black text-3xl ${ans.points === 10 ? 'text-[var(--accent)] drop-shadow-[0_2px_0_#000]' : ans.invalid ? 'text-red-500' : 'text-[#a890c2]'}`}>
                                 +{ans.points}
                               </span>
-                              
-                              {isHost && roundStatus === 'review' && (
-                                <button
-                                  onClick={() => setEditingScoreFor({ ...ans, category: cat })}
-                                  className="w-full sm:w-auto px-6 py-2 flex items-center gap-2 justify-center rounded-lg bg-[#2a1142] text-white hover:bg-[var(--primary)] font-bold text-sm transition-colors border border-[var(--surface-border)] shadow-inner"
-                                >
-                                  ✏️ Edit
-                                </button>
+                              {isClickable && (
+                                <span className="text-[#a890c2] text-xs font-bold uppercase tracking-widest opacity-50">Click to edit</span>
                               )}
                             </div>
                           </li>
-                        ))
+                          );
+                        })
                       )}
                     </ul>
                   </div>
