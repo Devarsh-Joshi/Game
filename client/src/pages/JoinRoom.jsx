@@ -17,6 +17,31 @@ export default function JoinRoom() {
   useEffect(() => {
     socket.connect();
 
+    // --- RECONNECT CHECK ---
+    // If the user already joined this room and just refreshed/reopened the link,
+    // silently reconnect them instead of forcing them to fill the form again.
+    const savedRoomId = localStorage.getItem('roomId');
+    const savedPlayerId = localStorage.getItem('playerId');
+    const savedIsHost = localStorage.getItem('isHost') === 'true';
+
+    if (savedRoomId && savedRoomId.toUpperCase() === roomId?.toUpperCase() && savedPlayerId && !savedIsHost) {
+      socket.emit('reconnect-player', { roomCode: savedRoomId, playerId: savedPlayerId }, (response) => {
+        if (response && response.success) {
+          console.log('Auto-reconnected to room', savedRoomId);
+          if (response.status === 'playing' || response.status === 'ended') {
+            navigate(`/game/${savedRoomId}`, { state: { isHost: false, reconnectState: response } });
+          } else {
+            navigate(`/room/${savedRoomId}`);
+          }
+        } else {
+          // Session expired or invalid — clear stale data and show the form
+          localStorage.removeItem('roomId');
+          localStorage.removeItem('playerId');
+          localStorage.removeItem('isHost');
+        }
+      });
+    }
+
     const handleJoinError = (data) => {
       setError(data.message);
       setIsJoining(false);
@@ -27,7 +52,7 @@ export default function JoinRoom() {
     return () => {
       socket.off('join-error', handleJoinError);
     };
-  }, []);
+  }, [navigate, roomId]);
 
   const handleJoinRoom = (e) => {
     e.preventDefault();
