@@ -80,42 +80,72 @@ export default function GameScreen() {
   }, [currentRound, roundStatus]);
 
   useEffect(() => {
-    const handleSocketConnect = () => {
-      console.log("Socket reconnected. Attempting to rejoin room...");
+    const syncGameState = () => {
       const playerId = localStorage.getItem('playerId');
       if (playerId) {
+        console.log("Syncing game state with server...");
         socket.emit('reconnect-player', { roomCode: roomId, playerId }, (res) => {
           if (res.success) {
             setIsHost(res.isHost);
             setTotalRounds(res.totalRounds);
             setRoundDuration(res.roundDuration);
-            setCurrentRound(res.currentRound);
-            setTimeLeft(res.timeLeft !== undefined ? res.timeLeft : res.roundDuration);
+
+            // Dynamically check if the round has changed compared to client state
+            setCurrentRound(prevRound => {
+              if (prevRound !== res.currentRound) {
+                // Round changed: clear inputs and reset ready state
+                setInputs({ name: '', place: '', animal: '', thing: '' });
+                setIsReady(res.hasSubmitted || false);
+              } else {
+                // Same round: keep inputs but sync ready state
+                setIsReady(res.hasSubmitted || false);
+              }
+              return res.currentRound;
+            });
+
+            setTimeLeft(res.timeLeft || res.roundDuration);
             setCurrentLetter(res.currentLetter);
             setRoundStatus(res.roundStatus);
-            if (res.displayAnswers && res.leaderboard) {
-              setResults({ displayAnswers: res.displayAnswers, leaderboard: res.leaderboard });
-            }
-            if (res.winners) setFinalWinners(res.winners);
 
-            // Restore inputs and ready state for active rounds
-            if (res.roundStatus === 'active') {
-              if (res.hasSubmitted) {
-                setInputs(res.submittedAnswers || { name: '', place: '', animal: '', thing: '' });
-                setIsReady(true);
-              } else {
-                setInputs({ name: '', place: '', animal: '', thing: '' });
-                setIsReady(false);
+            if (res.roundStatus === 'review' || res.roundStatus === 'finalized') {
+              if (res.displayAnswers && res.leaderboard) {
+                setResults({ displayAnswers: res.displayAnswers, leaderboard: res.leaderboard });
               }
+            } else {
+              setResults(null);
+            }
+
+            if (res.winners) {
+              setFinalWinners(res.winners);
+            } else {
+              setFinalWinners(null);
             }
           } else {
-            console.error("Reconnection failed:", res.error);
+            console.error("Reconnection sync failed:", res.error);
             localStorage.clear();
             navigate('/');
           }
         });
       }
     };
+
+    const handleSocketConnect = () => {
+      console.log("Socket reconnected. Attempting to rejoin room...");
+      syncGameState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log("Tab became visible. Checking connection & syncing...");
+        if (!socket.connected) {
+          socket.connect();
+        } else {
+          syncGameState();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const handleGameEnded = () => {
       alert("The session has ended.");
@@ -247,6 +277,7 @@ export default function GameScreen() {
     socket.on('play-again-vote-ended', handlePlayAgainVoteEnded);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       socket.off('connect', handleSocketConnect);
       socket.off('game-ended', handleGameEnded);
       socket.off('host-disconnected', handleGameEnded);

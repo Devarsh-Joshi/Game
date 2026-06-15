@@ -314,9 +314,13 @@ io.on('connection', (socket) => {
           
           io.to(roomCode).emit('players-updated', { players: room.players });
           
-          const playerSubmission = room.submissions[playerId];
-          const hasSubmitted = !!playerSubmission;
-          const submittedAnswers = playerSubmission ? playerSubmission.answers : null;
+          let timeLeft = room.timeLeft;
+          if (room.roundStartTime && room.roundStatus === 'active') {
+            const elapsed = Date.now() - room.roundStartTime;
+            timeLeft = Math.max(0, Math.ceil((room.roundDuration * 1000 - elapsed) / 1000));
+          }
+          
+          const hasSubmitted = !!(room.submissions && room.submissions[playerId]);
 
           if (typeof callback === 'function') {
             callback({ 
@@ -326,14 +330,13 @@ io.on('connection', (socket) => {
               totalRounds: room.totalRounds,
               roundDuration: room.roundDuration,
               currentRound: room.currentRound,
-              timeLeft: room.timeLeft !== undefined ? room.timeLeft : room.roundDuration,
+              timeLeft: timeLeft,
               displayAnswers: room.latestDisplayAnswers,
               leaderboard: room.latestLeaderboard,
               winners: room.winners,
               roundStatus: room.roundStatus,
               currentLetter: room.currentLetter,
-              hasSubmitted,
-              submittedAnswers
+              hasSubmitted
             });
           }
           
@@ -406,18 +409,17 @@ io.on('connection', (socket) => {
       logInfo(`ROOM:${roomCode}`, `Round ${room.currentRound} started with letter ${room.currentLetter}`);
 
       room.roundStartTime = Date.now();
-      room.timeLeft = room.roundDuration || 15;
+      let timeLeft = room.roundDuration || 15;
       
-      io.to(roomCode).emit('timer-update', room.timeLeft);
+      io.to(roomCode).emit('timer-update', timeLeft);
 
       room.timerInterval = setInterval(() => {
-        room.timeLeft -= 1;
-        io.to(roomCode).emit('timer-update', room.timeLeft);
+        timeLeft -= 1;
+        io.to(roomCode).emit('timer-update', timeLeft);
 
-        if (room.timeLeft <= 0) {
+        if (timeLeft <= 0) {
           clearInterval(room.timerInterval);
           room.timerInterval = null;
-          room.timeLeft = 0;
           room.roundStatus = 'ended';
           io.to(roomCode).emit('round-ended');
           logInfo(`ROOM:${roomCode}`, `Round ${room.currentRound} ended`);
