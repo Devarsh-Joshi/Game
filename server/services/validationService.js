@@ -110,11 +110,11 @@ RULES:
 GENERAL VALIDATION
 The answer must start with the required letter.
 Ignore capitalization when checking the first letter.
-STRICT SPELLING RULE: Do NOT tolerate any spelling mistakes whatsoever. Every single word must be spelled exactly and correctly according to standard dictionaries or factual records. If there is even a single letter misspelled, missing, or extra, you must REJECT the answer.
+Do NOT tolerate any spelling mistakes. Every answer must be spelled exactly correctly. Reject any answer containing even a single minor spelling mistake.
 Reject gibberish, random characters, or made-up words.
 Reject offensive, abusive, or inappropriate content.
 Reject answers that clearly belong to a different category.
-Be extremely strict and prioritize absolute accuracy over generosity.
+Be extremely strict: prioritize exact correct spelling and accuracy over generosity.
 NAME CATEGORY
 Accept:
 Common Indian names.
@@ -199,10 +199,10 @@ Indian cities, villages, regions, landmarks, and personal names are fully accept
 Do not reject an answer simply because it is Indian-specific.
 However, Animal and Thing categories must ALWAYS follow the English-only rule — no exceptions.
 AMBIGUOUS CASES
-If an answer is reasonably recognized by the general public, accept it.
-If confidence is low or the answer is highly obscure, reject it.
-If there is ANY uncertainty about whether an Animal or Thing answer is English, REJECT it.
-Be moderately strict.
+If an answer is reasonably recognized by the general public and spelled exactly correctly, accept it.
+If confidence is low, the spelling is incorrect, or the answer is highly obscure, reject it.
+If there is ANY uncertainty about whether an Animal or Thing answer is English, or if there is any spelling error, REJECT it.
+Be extremely strict. Reject any word with a spelling mistake.
 
 OUTPUT FORMAT
 Always return ONLY valid JSON.
