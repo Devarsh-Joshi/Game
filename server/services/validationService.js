@@ -234,8 +234,11 @@ Example Invalid Answer Output:
             });
 
             // Extract the generated text and parse it
-            const content = response.choices[0].message.content;
+            const content = response.choices && response.choices[0] && response.choices[0].message && response.choices[0].message.content;
             let aiResults = {};
+            if (!content) {
+                throw new Error("Sarvam AI returned empty or null content");
+            }
             try {
                 const cleanContent = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
                 aiResults = JSON.parse(cleanContent);
