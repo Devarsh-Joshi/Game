@@ -9,6 +9,8 @@ export default function LandingPage() {
   const [totalRounds, setTotalRounds] = useState(15);
   const [roundDuration, setRoundDuration] = useState(15);
 
+  const [isEditingRounds, setIsEditingRounds] = useState(false);
+
   useEffect(() => {
     socket.connect();
     
@@ -47,7 +49,7 @@ export default function LandingPage() {
     setIsCreating(true);
     setError('');
     
-    socket.emit('create-room', { totalRounds, roundDuration }, (response) => {
+    socket.emit('create-room', { totalRounds: Number(totalRounds), roundDuration }, (response) => {
       setIsCreating(false);
       if (response.success) {
         localStorage.setItem('roomId', response.roomCode);
@@ -100,13 +102,52 @@ export default function LandingPage() {
               >
                 -
               </button>
-              <div className="w-20 text-center font-black text-4xl text-[var(--accent)] drop-shadow-[0_2px_0_#ff3399]">
-                {totalRounds}
-              </div>
+              {isEditingRounds ? (
+                <input
+                  type="number"
+                  value={totalRounds}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setTotalRounds('');
+                    } else {
+                      const num = parseInt(val, 10);
+                      if (!isNaN(num)) {
+                        setTotalRounds(num);
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    const num = parseInt(totalRounds, 10);
+                    if (isNaN(num) || num < 1) {
+                      setTotalRounds(1);
+                    } else if (num > 15) {
+                      setTotalRounds(15);
+                    } else {
+                      setTotalRounds(num);
+                    }
+                    setIsEditingRounds(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.target.blur();
+                    }
+                  }}
+                  autoFocus
+                  className="w-20 text-center font-black text-4xl text-[var(--accent)] bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              ) : (
+                <div 
+                  onClick={() => setIsEditingRounds(true)}
+                  className="w-20 text-center font-black text-4xl text-[var(--accent)] drop-shadow-[0_2px_0_#ff3399] cursor-pointer hover:scale-110 transition-transform"
+                >
+                  {totalRounds}
+                </div>
+              )}
               <button 
                 type="button"
                 className="w-12 h-12 bg-[var(--secondary)] text-slate-900 rounded-xl font-black text-2xl flex items-center justify-center hover:bg-[#00e5ff] hover:-translate-y-1 transition-transform shadow-[0_4px_0_#008b99] active:translate-y-0 active:shadow-none"
-                onClick={() => setTotalRounds(prev => Math.min(50, Number(prev) + 1))}
+                onClick={() => setTotalRounds(prev => Math.min(15, Number(prev) + 1))}
               >
                 +
               </button>

@@ -28,6 +28,7 @@ export default function GameScreen() {
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
   const [restartSettings, setRestartSettings] = useState({ totalRounds: reconnectState?.totalRounds || 15, roundDuration: reconnectState?.roundDuration || 15 });
+  const [isEditingRestartRounds, setIsEditingRestartRounds] = useState(false);
 
   // Play Again Voting State
   const [votingActive, setVotingActive] = useState(false);
@@ -965,8 +966,49 @@ export default function GameScreen() {
               <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Number of Rounds</label>
               <div className="flex items-center gap-4 bg-[#150722] p-2 rounded-xl border-2 border-[var(--surface-border)] mb-4">
                 <button type="button" className="w-10 h-10 bg-[var(--primary)] text-white rounded-lg font-black text-xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.max(1, Number(prev.totalRounds) - 1) }))}>-</button>
-                <div className="flex-1 text-center font-black text-2xl text-[var(--accent)]">{restartSettings.totalRounds}</div>
-                <button type="button" className="w-10 h-10 bg-[var(--secondary)] text-slate-900 rounded-lg font-black text-xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.min(50, Number(prev.totalRounds) + 1) }))}>+</button>
+                {isEditingRestartRounds ? (
+                  <input
+                    type="number"
+                    value={restartSettings.totalRounds}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        setRestartSettings(prev => ({ ...prev, totalRounds: '' }));
+                      } else {
+                        const num = parseInt(val, 10);
+                        if (!isNaN(num)) {
+                          setRestartSettings(prev => ({ ...prev, totalRounds: num }));
+                        }
+                      }
+                    }}
+                    onBlur={() => {
+                      const num = parseInt(restartSettings.totalRounds, 10);
+                      if (isNaN(num) || num < 1) {
+                        setRestartSettings(prev => ({ ...prev, totalRounds: 1 }));
+                      } else if (num > 15) {
+                        setRestartSettings(prev => ({ ...prev, totalRounds: 15 }));
+                      } else {
+                        setRestartSettings(prev => ({ ...prev, totalRounds: num }));
+                      }
+                      setIsEditingRestartRounds(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.target.blur();
+                      }
+                    }}
+                    autoFocus
+                    className="flex-1 text-center font-black text-2xl text-[var(--accent)] bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                ) : (
+                  <div 
+                    onClick={() => setIsEditingRestartRounds(true)}
+                    className="flex-1 text-center font-black text-2xl text-[var(--accent)] cursor-pointer hover:scale-110 transition-transform"
+                  >
+                    {restartSettings.totalRounds}
+                  </div>
+                )}
+                <button type="button" className="w-10 h-10 bg-[var(--secondary)] text-slate-900 rounded-lg font-black text-xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.min(15, Number(prev.totalRounds) + 1) }))}>+</button>
               </div>
 
               <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Round Duration</label>
@@ -1093,11 +1135,52 @@ export default function GameScreen() {
                 <div className="mb-8 text-left space-y-6">
                   <div>
                     <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2 text-center">Number of Rounds</label>
-                    <div className="flex items-center gap-4 bg-[#0a0212] p-2 rounded-xl border-2 border-[var(--surface-border)]">
-                      <button type="button" className="w-12 h-12 bg-[var(--primary)] text-white rounded-lg font-black text-2xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.max(1, Number(prev.totalRounds) - 1) }))}>-</button>
-                      <div className="flex-1 text-center font-black text-3xl text-[var(--accent)]">{restartSettings.totalRounds}</div>
-                      <button type="button" className="w-12 h-12 bg-[var(--secondary)] text-slate-900 rounded-lg font-black text-2xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.min(50, Number(prev.totalRounds) + 1) }))}>+</button>
-                    </div>
+                     <div className="flex items-center gap-4 bg-[#0a0212] p-2 rounded-xl border-2 border-[var(--surface-border)]">
+                       <button type="button" className="w-12 h-12 bg-[var(--primary)] text-white rounded-lg font-black text-2xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.max(1, Number(prev.totalRounds) - 1) }))}>-</button>
+                       {isEditingRestartRounds ? (
+                         <input
+                           type="number"
+                           value={restartSettings.totalRounds}
+                           onChange={(e) => {
+                             const val = e.target.value;
+                             if (val === '') {
+                               setRestartSettings(prev => ({ ...prev, totalRounds: '' }));
+                             } else {
+                               const num = parseInt(val, 10);
+                               if (!isNaN(num)) {
+                                 setRestartSettings(prev => ({ ...prev, totalRounds: num }));
+                               }
+                             }
+                           }}
+                           onBlur={() => {
+                             const num = parseInt(restartSettings.totalRounds, 10);
+                             if (isNaN(num) || num < 1) {
+                               setRestartSettings(prev => ({ ...prev, totalRounds: 1 }));
+                             } else if (num > 15) {
+                               setRestartSettings(prev => ({ ...prev, totalRounds: 15 }));
+                             } else {
+                               setRestartSettings(prev => ({ ...prev, totalRounds: num }));
+                             }
+                             setIsEditingRestartRounds(false);
+                           }}
+                           onKeyDown={(e) => {
+                             if (e.key === 'Enter') {
+                               e.target.blur();
+                             }
+                           }}
+                           autoFocus
+                           className="flex-1 text-center font-black text-3xl text-[var(--accent)] bg-transparent border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                         />
+                       ) : (
+                         <div 
+                           onClick={() => setIsEditingRestartRounds(true)}
+                           className="flex-1 text-center font-black text-3xl text-[var(--accent)] cursor-pointer hover:scale-110 transition-transform"
+                         >
+                           {restartSettings.totalRounds}
+                         </div>
+                       )}
+                       <button type="button" className="w-12 h-12 bg-[var(--secondary)] text-slate-900 rounded-lg font-black text-2xl flex items-center justify-center" onClick={() => setRestartSettings(prev => ({ ...prev, totalRounds: Math.min(15, Number(prev.totalRounds) + 1) }))}>+</button>
+                     </div>
                   </div>
 
                   <div>
