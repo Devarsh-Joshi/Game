@@ -30,12 +30,32 @@ export default function HostDashboard() {
   };
 
   useEffect(() => {
-    if (!socket.connected) {
-      navigate('/');
-      return;
+    const handleReconnect = () => {
+      const playerId = localStorage.getItem('playerId');
+      if (playerId) {
+        socket.emit('reconnect-player', { roomCode: roomId, playerId }, (res) => {
+          if (res.success) {
+            if (res.status === 'playing' || res.status === 'ended') {
+              navigate(`/game/${roomId}`, { state: { isHost: true, reconnectState: res } });
+            } else {
+              socket.emit('request-room-state', roomId);
+            }
+          } else {
+            localStorage.clear();
+            navigate('/');
+          }
+        });
+      } else {
+        navigate('/');
+      }
+    };
+
+    // If already connected, sync immediately. Otherwise, it will sync on connect event.
+    if (socket.connected) {
+      handleReconnect();
+    } else {
+      socket.connect();
     }
-    // Request initial state on mount/reconnect
-    socket.emit('request-room-state', roomId);
 
     const handlePlayerListUpdate = (data) => {
       setPlayers(data.players);
@@ -46,10 +66,12 @@ export default function HostDashboard() {
       navigate(`/game/${roomId}`, { state: { isHost: true } });
     };
 
+    socket.on('connect', handleReconnect);
     socket.on('players-updated', handlePlayerListUpdate);
     socket.on('game-started', handleGameStarted);
 
     return () => {
+      socket.off('connect', handleReconnect);
       socket.off('players-updated', handlePlayerListUpdate);
       socket.off('game-started', handleGameStarted);
     };

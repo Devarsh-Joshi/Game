@@ -314,6 +314,10 @@ io.on('connection', (socket) => {
           
           io.to(roomCode).emit('players-updated', { players: room.players });
           
+          const playerSubmission = room.submissions[playerId];
+          const hasSubmitted = !!playerSubmission;
+          const submittedAnswers = playerSubmission ? playerSubmission.answers : null;
+
           if (typeof callback === 'function') {
             callback({ 
               success: true, 
@@ -322,12 +326,14 @@ io.on('connection', (socket) => {
               totalRounds: room.totalRounds,
               roundDuration: room.roundDuration,
               currentRound: room.currentRound,
-              timeLeft: room.timeLeft,
+              timeLeft: room.timeLeft !== undefined ? room.timeLeft : room.roundDuration,
               displayAnswers: room.latestDisplayAnswers,
               leaderboard: room.latestLeaderboard,
               winners: room.winners,
               roundStatus: room.roundStatus,
-              currentLetter: room.currentLetter
+              currentLetter: room.currentLetter,
+              hasSubmitted,
+              submittedAnswers
             });
           }
           
@@ -400,17 +406,18 @@ io.on('connection', (socket) => {
       logInfo(`ROOM:${roomCode}`, `Round ${room.currentRound} started with letter ${room.currentLetter}`);
 
       room.roundStartTime = Date.now();
-      let timeLeft = room.roundDuration || 15;
+      room.timeLeft = room.roundDuration || 15;
       
-      io.to(roomCode).emit('timer-update', timeLeft);
+      io.to(roomCode).emit('timer-update', room.timeLeft);
 
       room.timerInterval = setInterval(() => {
-        timeLeft -= 1;
-        io.to(roomCode).emit('timer-update', timeLeft);
+        room.timeLeft -= 1;
+        io.to(roomCode).emit('timer-update', room.timeLeft);
 
-        if (timeLeft <= 0) {
+        if (room.timeLeft <= 0) {
           clearInterval(room.timerInterval);
           room.timerInterval = null;
+          room.timeLeft = 0;
           room.roundStatus = 'ended';
           io.to(roomCode).emit('round-ended');
           logInfo(`ROOM:${roomCode}`, `Round ${room.currentRound} ended`);

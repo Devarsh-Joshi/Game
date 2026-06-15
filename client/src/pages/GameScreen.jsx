@@ -90,13 +90,24 @@ export default function GameScreen() {
             setTotalRounds(res.totalRounds);
             setRoundDuration(res.roundDuration);
             setCurrentRound(res.currentRound);
-            setTimeLeft(res.timeLeft || res.roundDuration);
+            setTimeLeft(res.timeLeft !== undefined ? res.timeLeft : res.roundDuration);
             setCurrentLetter(res.currentLetter);
             setRoundStatus(res.roundStatus);
             if (res.displayAnswers && res.leaderboard) {
               setResults({ displayAnswers: res.displayAnswers, leaderboard: res.leaderboard });
             }
             if (res.winners) setFinalWinners(res.winners);
+
+            // Restore inputs and ready state for active rounds
+            if (res.roundStatus === 'active') {
+              if (res.hasSubmitted) {
+                setInputs(res.submittedAnswers || { name: '', place: '', animal: '', thing: '' });
+                setIsReady(true);
+              } else {
+                setInputs({ name: '', place: '', animal: '', thing: '' });
+                setIsReady(false);
+              }
+            }
           } else {
             console.error("Reconnection failed:", res.error);
             localStorage.clear();
