@@ -7,7 +7,7 @@ export default function GameScreen() {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const isHost = location.state?.isHost || false;
+  const [isHost, setIsHost] = useState(location.state?.isHost || false);
 
   const reconnectState = location.state?.reconnectState;
   const myPlayerId = localStorage.getItem('playerId');
