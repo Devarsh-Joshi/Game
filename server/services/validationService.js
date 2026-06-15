@@ -110,11 +110,11 @@ RULES:
 GENERAL VALIDATION
 The answer must start with the required letter.
 Ignore capitalization when checking the first letter.
-Minor spelling mistakes may be accepted only if the intended answer is obvious and commonly recognized.
+STRICT SPELLING RULE: Do NOT tolerate any spelling mistakes whatsoever. Every single word must be spelled exactly and correctly according to standard dictionaries or factual records. If there is even a single letter misspelled, missing, or extra, you must REJECT the answer.
 Reject gibberish, random characters, or made-up words.
 Reject offensive, abusive, or inappropriate content.
 Reject answers that clearly belong to a different category.
-Be moderately strict and prioritize accuracy over generosity.
+Be extremely strict and prioritize absolute accuracy over generosity.
 NAME CATEGORY
 Accept:
 Common Indian names.
