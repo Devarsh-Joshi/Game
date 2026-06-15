@@ -57,6 +57,24 @@ export default function GameScreen() {
   const [editingScoreFor, setEditingScoreFor] = useState(null);
   const [leaderboardSortMode, setLeaderboardSortMode] = useState('score');
   const [activeReviewTab, setActiveReviewTab] = useState('name');
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const inviteLink = `${window.location.origin}/join/${roomId}`;
+
+  const handleCopyInviteLink = () => {
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  };
+
+  const handleShareInviteLink = () => {
+    if (navigator.share) {
+      navigator.share({ title: 'Join Think & Type Game', url: inviteLink }).catch(console.error);
+    } else {
+      handleCopyInviteLink();
+    }
+  };
 
   const inputsRef = useRef(inputs);
   const isReadyRef = useRef(isReady);
@@ -520,12 +538,37 @@ export default function GameScreen() {
         </div>
 
         {/* Footer Actions */}
-        <div className="flex-shrink-0 mt-4 max-w-4xl w-full mx-auto flex flex-col sm:flex-row justify-center gap-4 animate-fade-in" style={{ animationDelay: '0.5s' }}>
-          <button onClick={handleDownloadExcel} className="btn-secondary py-3 px-6 text-sm md:text-base w-full sm:w-auto">Download Results (Excel)</button>
+        <div className="flex-shrink-0 mt-4 max-w-4xl w-full mx-auto flex flex-col gap-4 animate-fade-in" style={{ animationDelay: '0.5s' }}>
+          {/* Shareable Session Link — Host Only on Final Screen */}
           {isHost && (
-            <button onClick={handleStartPlayAgainVote} className="btn-primary py-3 px-6 text-sm md:text-base bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600] w-full sm:w-auto">Play Again</button>
+            <div className="bg-[#150722] rounded-xl p-4 border-2 border-[var(--surface-border)] shadow-inner flex flex-col sm:flex-row items-center gap-3">
+              <div className="text-xs font-black text-[#a890c2] uppercase tracking-widest whitespace-nowrap">Session Link:</div>
+              <div className="flex-1 bg-[#0a0212] px-3 py-2 rounded-lg border border-[var(--surface-border)] text-[var(--secondary)] font-mono text-xs break-all select-all min-w-0 w-full sm:w-auto">
+                {inviteLink}
+              </div>
+              <div className="flex gap-2 flex-shrink-0 w-full sm:w-auto">
+                <button
+                  onClick={handleCopyInviteLink}
+                  className="flex-1 sm:flex-none px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg border-2 border-[var(--surface-border)] text-[#a890c2] hover:bg-[#2a1142] hover:text-white transition-colors"
+                >
+                  {linkCopied ? '✓ Copied' : '📋 Copy'}
+                </button>
+                <button
+                  onClick={handleShareInviteLink}
+                  className="flex-1 sm:flex-none px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-[#008b99] hover:bg-[#007080] text-white transition-colors shadow-[0_2px_0_#004c59]"
+                >
+                  🔗 Share
+                </button>
+              </div>
+            </div>
           )}
-          <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#800000] text-white w-full sm:w-auto">Return Home</button>
+          <div className="flex flex-col sm:flex-row justify-center gap-4">
+            <button onClick={handleDownloadExcel} className="btn-secondary py-3 px-6 text-sm md:text-base w-full sm:w-auto">Download Results (Excel)</button>
+            {isHost && (
+              <button onClick={handleStartPlayAgainVote} className="btn-primary py-3 px-6 text-sm md:text-base bg-green-500 hover:bg-green-400 shadow-[0_4px_0_#006600] w-full sm:w-auto">Play Again</button>
+            )}
+            <button onClick={() => { localStorage.clear(); window.location.href = '/'; }} className="btn-primary py-3 px-6 text-sm md:text-base bg-red-600 hover:bg-red-500 shadow-[0_4px_0_#800000] text-white w-full sm:w-auto">Return Home</button>
+          </div>
         </div>
       </div>
       ) : (
@@ -650,6 +693,30 @@ export default function GameScreen() {
               >
                 End Game
               </button>
+            </div>
+          )}
+
+          {/* Shareable Session Link — Host Only */}
+          {isHost && (
+            <div className="w-full mt-6 bg-[#150722] rounded-xl p-4 border-2 border-[var(--surface-border)] shadow-inner">
+              <div className="text-[10px] font-black text-[#a890c2] uppercase tracking-widest mb-2">Session Link</div>
+              <div className="bg-[#0a0212] p-2 rounded-lg border border-[var(--surface-border)] text-[var(--secondary)] font-mono text-[11px] break-all mb-3 select-all">
+                {inviteLink}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCopyInviteLink}
+                  className="flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-lg border-2 border-[var(--surface-border)] text-[#a890c2] hover:bg-[#2a1142] hover:text-white transition-colors flex items-center justify-center gap-1"
+                >
+                  {linkCopied ? '✓ Copied' : '📋 Copy'}
+                </button>
+                <button
+                  onClick={handleShareInviteLink}
+                  className="flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-lg bg-[#008b99] hover:bg-[#007080] text-white transition-colors flex items-center justify-center gap-1 shadow-[0_2px_0_#004c59]"
+                >
+                  🔗 Share
+                </button>
+              </div>
             </div>
           )}
         </div>
