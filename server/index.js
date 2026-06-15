@@ -5,7 +5,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const crypto = require('crypto');
 const { generateLetter } = require('./services/letterGenerator');
-const { validateRoundSubmissions, validationCache } = require('./services/validationService');
+const { validateRoundSubmissions, validationCache, basicValidation } = require('./services/validationService');
 
 
 function isValidForLetter(answer, currentLetter) {
@@ -391,12 +391,23 @@ io.on('connection', (socket) => {
 
       if (room.timerInterval) {
         clearInterval(room.timerInterval);
+        room.timerInterval = null;
+      }
+      if (room.gracePeriodTimeout) {
+        clearTimeout(room.gracePeriodTimeout);
+        room.gracePeriodTimeout = null;
       }
 
       room.currentRound += 1;
       room.currentLetter = generateLetter(room.usedLetters);
       room.roundStatus = 'active';
       room.submissions = {}; // Clear old submissions
+      
+      // Reset validation states for the new round
+      room.validatingPlayers = new Set();
+      room.validationVersions = {};
+      room.validatedAnswers = {};
+      room.gracePeriodEnded = false;
 
       io.to(roomCode).emit('round-started', {
         round: room.currentRound,
@@ -424,13 +435,11 @@ io.on('connection', (socket) => {
           io.to(roomCode).emit('round-ended');
           logInfo(`ROOM:${roomCode}`, `Round ${room.currentRound} ended`);
           
-          // Grace period for late auto-submissions
-          setTimeout(async () => {
-            logInfo(`ROOM:${roomCode}`, `Running AI Validation...`);
-            io.to(roomCode).emit('validation-started'); // Optional, to show UI progress
-            const validatedAnswers = await validateRoundSubmissions(room.submissions, room.currentLetter);
-            room.validatedAnswers = validatedAnswers;
-            calculateScores(roomCode, room);
+          room.gracePeriodEnded = false;
+          room.gracePeriodTimeout = setTimeout(() => {
+            room.gracePeriodEnded = true;
+            logInfo(`ROOM:${roomCode}`, `Grace period ended. Checking pending validations...`);
+            checkAndPublishResults(roomCode, room);
           }, 1500);
         }
       }, 1000);
@@ -606,6 +615,15 @@ io.on('connection', (socket) => {
       
       const playerId = player.playerId;
 
+      logInfo(`ROOM:${roomCode}`, `[Submission received] Player: ${playerId} (${player.fullName}), Type: ${submissionType || 'manual'}`);
+
+      const previousSubmission = room.submissions[playerId];
+      const answersChanged = !previousSubmission ||
+        (previousSubmission.answers.name !== answers.name ||
+         previousSubmission.answers.place !== answers.place ||
+         previousSubmission.answers.animal !== answers.animal ||
+         previousSubmission.answers.thing !== answers.thing);
+
       // Save submission
       const now = Date.now();
       room.submissions[playerId] = {
@@ -626,10 +644,81 @@ io.on('connection', (socket) => {
       });
 
       if (typeof callback === 'function') callback({ success: true });
+
+      // Check if validation is required
+      const isFirstSubmission = !previousSubmission;
+      const isExplicitResubmit = submissionType === 'manual';
+      const shouldValidate = isFirstSubmission || isExplicitResubmit || answersChanged;
+
+      if (shouldValidate) {
+        room.validatingPlayers = room.validatingPlayers || new Set();
+        room.validationVersions = room.validationVersions || {};
+        room.validatedAnswers = room.validatedAnswers || {};
+
+        // Increment validation version for this player to discard previous ones
+        room.validationVersions[playerId] = (room.validationVersions[playerId] || 0) + 1;
+        const currentVersion = room.validationVersions[playerId];
+
+        room.validatingPlayers.add(playerId);
+        logInfo(`ROOM:${roomCode}`, `[Validation started] Player: ${playerId} (${player.fullName}) (Version: ${currentVersion})`);
+
+        // Run validation asynchronously in the background
+        (async () => {
+          try {
+            const singleSub = { [playerId]: { answers } };
+            const validationResult = await validateRoundSubmissions(singleSub, room.currentLetter);
+            
+            if (currentVersion === room.validationVersions[playerId]) {
+              room.validatedAnswers[playerId] = validationResult[playerId];
+              logInfo(`ROOM:${roomCode}`, `[Validation completed] Player: ${playerId} (${player.fullName})`);
+            } else {
+              logInfo(`ROOM:${roomCode}`, `[Validation stale] Player: ${playerId} (${player.fullName}) (Stale Version: ${currentVersion}, Current Version: ${room.validationVersions[playerId]})`);
+            }
+          } catch (err) {
+            logError(`ROOM:${roomCode}`, `[Validation failed] Player: ${playerId} (${player.fullName})`, err);
+            
+            if (currentVersion === room.validationVersions[playerId]) {
+              // Fallback to basic validation
+              const basicValidationResult = {};
+              ['name', 'place', 'animal', 'thing'].forEach(cat => {
+                const answerText = answers[cat] || '';
+                const isValidBasic = basicValidation(answerText, room.currentLetter, cat);
+                basicValidationResult[cat] = {
+                  answer: answerText,
+                  valid: isValidBasic,
+                  mode: 'error-fallback'
+                };
+              });
+              room.validatedAnswers[playerId] = basicValidationResult;
+            }
+          } finally {
+            if (currentVersion === room.validationVersions[playerId]) {
+              room.validatingPlayers.delete(playerId);
+            }
+            checkAndPublishResults(roomCode, room);
+          }
+        })();
+      } else {
+        logInfo(`ROOM:${roomCode}`, `[Validation skipped] Player: ${playerId} (${player.fullName}) - duplicate submission`);
+        checkAndPublishResults(roomCode, room);
+      }
     } else {
       if (typeof callback === 'function') callback({ success: false, error: 'Room not found.' });
     }
   });
+
+  function checkAndPublishResults(roomCode, room) {
+    if (room.roundStatus !== 'ended') return;
+    if (!room.gracePeriodEnded) return;
+
+    if (room.validatingPlayers && room.validatingPlayers.size > 0) {
+      logInfo(`ROOM:${roomCode}`, `Round ended, waiting for ${room.validatingPlayers.size} pending validations to complete...`);
+      return;
+    }
+
+    logInfo(`ROOM:${roomCode}`, `All validations completed. Publishing results...`);
+    calculateScores(roomCode, room);
+  }
 
   function calculateScores(roomCode, room) {
     const categories = ['name', 'place', 'animal', 'thing'];
@@ -711,6 +800,8 @@ io.on('connection', (socket) => {
       displayAnswers,
       leaderboard
     });
+
+    logInfo(`ROOM:${roomCode}`, `[Results published] for round ${room.currentRound}`);
   }
 
   socket.on('end-game', (roomCode) => {
@@ -772,8 +863,9 @@ io.on('connection', (socket) => {
         const room = rooms.get(roomCode);
         const pid = typeof data === 'string' ? socket.playerId : data.playerId;
         if (room.hostId === socket.id || room.hostPlayerId === pid) {
-          if (room.timerInterval) clearInterval(room.timerInterval);
-          if (room.playAgainTimer) clearInterval(room.playAgainTimer);
+          if (room.timerInterval) { clearInterval(room.timerInterval); room.timerInterval = null; }
+          if (room.gracePeriodTimeout) { clearTimeout(room.gracePeriodTimeout); room.gracePeriodTimeout = null; }
+          if (room.playAgainTimer) { clearInterval(room.playAgainTimer); room.playAgainTimer = null; }
           
           if (typeof data === 'object') {
             if (data.totalRounds) room.totalRounds = Math.min(Math.max(Number(data.totalRounds) || 15, 1), 50);
@@ -791,6 +883,9 @@ io.on('connection', (socket) => {
           room.usedLetters = [];
           room.submissions = {};
           room.validatedAnswers = {};
+          room.validatingPlayers = new Set();
+          room.validationVersions = {};
+          room.gracePeriodEnded = false;
           room.winners = null;
           room.latestDisplayAnswers = null;
           room.latestLeaderboard = null;
@@ -888,6 +983,9 @@ io.on('connection', (socket) => {
         const room = rooms.get(roomCode);
         if (room.hostId === socket.id || room.hostPlayerId === playerId) {
           
+          if (room.timerInterval) { clearInterval(room.timerInterval); room.timerInterval = null; }
+          if (room.gracePeriodTimeout) { clearTimeout(room.gracePeriodTimeout); room.gracePeriodTimeout = null; }
+
           if (totalRounds) room.totalRounds = Math.min(Math.max(Number(totalRounds) || 15, 1), 50);
           const validDurations = [10, 15, 20, 30, 45, 60];
           if (roundDuration && validDurations.includes(Number(roundDuration))) {
@@ -902,6 +1000,9 @@ io.on('connection', (socket) => {
           room.usedLetters = [];
           room.submissions = {};
           room.validatedAnswers = {};
+          room.validatingPlayers = new Set();
+          room.validationVersions = {};
+          room.gracePeriodEnded = false;
           room.winners = null;
           room.latestDisplayAnswers = null;
           room.latestLeaderboard = null;
@@ -964,8 +1065,10 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}
 
 module.exports = { calculateCategoryScores };

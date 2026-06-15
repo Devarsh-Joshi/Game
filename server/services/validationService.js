@@ -145,50 +145,63 @@ Accept:
 Mammals, birds, reptiles, amphibians, fish, and insects.
 Scientifically recognized animals.
 Widely known animal species.
-Common English animal names.
+Common English animal names ONLY.
 Reject:
 Animal groups that are too vague.
 Mythical creatures.
 Fictional creatures.
-Hindi, Gujarati, or other regional-language animal names.
+Hindi, Gujarati, Marathi, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, or any other regional-language animal names.
 Transliterated Indian-language animal names.
 Animal names written in any language other than English.
-Important:
-Animal answers must be in English only.
-Even if a Hindi or Gujarati animal name refers to a real animal, it must be rejected unless the English name is provided.
+CRITICAL: The following are examples of INVALID Animal answers:
+- "Sher" (Hindi for Lion) → REJECT. The correct English answer is "Lion".
+- "Kutta" (Hindi for Dog) → REJECT. The correct English answer is "Dog".
+- "Billi" (Hindi for Cat) → REJECT. The correct English answer is "Cat".
+- "Ghoda" (Hindi for Horse) → REJECT. The correct English answer is "Horse".
+- "Popat" (Gujarati for Parrot) → REJECT. The correct English answer is "Parrot".
+- "Saslu" (Gujarati for Rabbit) → REJECT. The correct English answer is "Rabbit".
+- "Undir" (Marathi for Mouse) → REJECT. The correct English answer is "Mouse".
+If an Animal answer is not a recognized English word, it MUST be rejected even if it refers to a real animal.
 THING CATEGORY
 Accept:
 Physical objects.
 Tools, vehicles, appliances, foods, products, and equipment.
 Everyday items commonly recognized by people.
 Common nouns representing tangible objects.
-Common English names of foods and objects.
+Common English names of foods and objects ONLY.
 Reject:
 Abstract concepts.
 Emotions.
 Actions or verbs.
 Extremely obscure technical terms unknown to most people.
-Hindi, Gujarati, or other regional-language words for objects or foods.
+Hindi, Gujarati, Marathi, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, or any other regional-language words for objects or foods.
 Transliterated Indian-language object names.
 Thing names written in any language other than English.
-Important:
-Thing answers must be in English only.
-Even if the object exists, reject it if the answer is provided using a Hindi, Gujarati, or other regional-language word instead of its English name.
-LANGUAGE POLICY
+CRITICAL: The following are examples of INVALID Thing answers:
+- "Lakdu" or "Lakadu" (Gujarati for Wood) → REJECT. The correct English answer is "Wood".
+- "Chappal" (Hindi for Slipper) → REJECT. The correct English answer is "Slipper".
+- "Rotli" or "Roti" (Gujarati/Hindi for Bread) → REJECT. The correct English answer is "Bread".
+- "Thepla" (Gujarati flatbread) → REJECT. No standard English equivalent; it is a regional-language word.
+- "Dabbo" or "Dabba" (Gujarati/Hindi for Box) → REJECT. The correct English answer is "Box".
+- "Dori" (Hindi for Rope) → REJECT. The correct English answer is "Rope".
+- "Tawa" (Hindi for Griddle) → REJECT. The correct English answer is "Griddle".
+If a Thing answer is not a recognized English word, it MUST be rejected even if the object exists.
+LANGUAGE POLICY (CRITICAL — READ THIS CAREFULLY)
 Name and Place categories may contain valid Indian names and place names from Indian languages if they are real and commonly recognized.
-Animal and Thing categories must be strictly in English.
-Reject Animal and Thing answers written in Hindi, Gujarati, Marathi, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, or any other non-English language.
-Reject transliterated regional-language words in Animal and Thing categories.
+Animal and Thing categories MUST be strictly in English. This is the MOST IMPORTANT rule.
+Reject ALL Animal and Thing answers written in Hindi, Gujarati, Marathi, Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi, Urdu, or any other non-English language.
+Reject ALL transliterated regional-language words in Animal and Thing categories.
 English spelling must be used for Animal and Thing answers.
+When in doubt about whether a word is English or a transliterated Indian-language word, REJECT IT.
 INDIAN CONTEXT
 Give preference to Indian usage and common understanding.
 Indian cities, villages, regions, landmarks, and personal names are fully acceptable.
 Do not reject an answer simply because it is Indian-specific.
-However, Animal and Thing categories must still follow the English-only rule.
+However, Animal and Thing categories must ALWAYS follow the English-only rule — no exceptions.
 AMBIGUOUS CASES
 If an answer is reasonably recognized by the general public, accept it.
 If confidence is low or the answer is highly obscure, reject it.
-If there is uncertainty about whether an Animal or Thing answer is English, reject it.
+If there is ANY uncertainty about whether an Animal or Thing answer is English, REJECT it.
 Be moderately strict.
 
 OUTPUT FORMAT
@@ -207,7 +220,15 @@ Example Invalid Answer Output:
   "animal:sher": {
     "valid": false,
     "score": 0,
-    "reason": "Animal and Thing answers must be provided in English only."
+    "reason": "'Sher' is a Hindi word for Lion. Animal answers must be in English only. The correct answer would be 'Lion'."
+  }
+}
+Another Invalid Example:
+{
+  "thing:lakdu": {
+    "valid": false,
+    "score": 0,
+    "reason": "'Lakdu' is a Gujarati word for Wood. Thing answers must be in English only. The correct answer would be 'Wood'."
   }
 }`;
 
@@ -299,5 +320,6 @@ Example Invalid Answer Output:
 
 module.exports = {
     validateRoundSubmissions,
-    validationCache // Exported for host override manual manipulation
+    validationCache, // Exported for host override manual manipulation
+    basicValidation // Exported for fallback validation on server
 };
