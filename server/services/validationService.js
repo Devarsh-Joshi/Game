@@ -255,7 +255,8 @@ Another Invalid Example:
             });
 
             // Extract the generated text and parse it
-            const content = response.choices && response.choices[0] && response.choices[0].message && response.choices[0].message.content;
+            const data = response.data || response;
+            const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
             let aiResults = {};
             if (!content) {
                 throw new Error("Sarvam AI returned empty or null content");
