@@ -91,6 +91,8 @@ export default function JoinRoom() {
         localStorage.setItem('roomId', response.roomCode);
         localStorage.setItem('playerId', response.playerId);
         localStorage.setItem('isHost', 'false');
+        localStorage.setItem('roundDuration', String(response.roundDuration || 15));
+        localStorage.setItem('totalRounds', String(response.totalRounds || 15));
         navigate(`/room/${response.roomCode}`);
       } else {
         setError(response.error || 'Failed to join room.');

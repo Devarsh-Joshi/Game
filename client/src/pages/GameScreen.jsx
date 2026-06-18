@@ -12,12 +12,16 @@ export default function GameScreen() {
   const reconnectState = location.state?.reconnectState;
   const myPlayerId = localStorage.getItem('playerId');
 
+  // Read persisted session settings saved when the room was created or joined
+  const _savedDuration = Number(localStorage.getItem('roundDuration')) || 15;
+  const _savedTotalRounds = Number(localStorage.getItem('totalRounds')) || 15;
+
   const [roundStatus, setRoundStatus] = useState(reconnectState?.roundStatus || 'waiting'); // waiting, active, ended, results, finished
   const [currentRound, setCurrentRound] = useState(reconnectState?.currentRound || 0);
-  const [totalRounds, setTotalRounds] = useState(reconnectState?.totalRounds || 15);
-  const [roundDuration, setRoundDuration] = useState(reconnectState?.roundDuration || 15);
+  const [totalRounds, setTotalRounds] = useState(reconnectState?.totalRounds || _savedTotalRounds);
+  const [roundDuration, setRoundDuration] = useState(reconnectState?.roundDuration || _savedDuration);
   const [currentLetter, setCurrentLetter] = useState(reconnectState?.currentLetter || '?');
-  const [timeLeft, setTimeLeft] = useState(reconnectState?.roundDuration || 15);
+  const [timeLeft, setTimeLeft] = useState(reconnectState?.roundDuration || _savedDuration);
 
   const [inputs, setInputs] = useState({
     name: '',
@@ -27,7 +31,7 @@ export default function GameScreen() {
   });
   const [showRestartModal, setShowRestartModal] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
-  const [restartSettings, setRestartSettings] = useState({ totalRounds: reconnectState?.totalRounds || 15, roundDuration: reconnectState?.roundDuration || 15 });
+  const [restartSettings, setRestartSettings] = useState({ totalRounds: reconnectState?.totalRounds || _savedTotalRounds, roundDuration: reconnectState?.roundDuration || _savedDuration, isCustom: false, customInputValue: 30 });
   const [isEditingRestartRounds, setIsEditingRestartRounds] = useState(false);
 
   // Play Again Voting State
@@ -147,6 +151,9 @@ export default function GameScreen() {
       }
     };
 
+    // Run sync on mount
+    syncGameState();
+
     const handleSocketConnect = () => {
       console.log("Socket reconnected. Attempting to rejoin room...");
       syncGameState();
@@ -171,12 +178,13 @@ export default function GameScreen() {
     };
 
     const handleRoundStarted = (data) => {
-      console.log("Round Started Event Received");
+      console.log("Round Started Event Received", JSON.stringify(data));
       setCurrentRound(data.round);
       if (data.totalRounds) setTotalRounds(data.totalRounds);
       if (data.roundDuration) {
-        setRoundDuration(data.roundDuration);
-        setRestartSettings(prev => ({ ...prev, roundDuration: data.roundDuration }));
+        console.log(`[GAMESCREEN] round-started sets roundDuration to: ${data.roundDuration}`);
+        setRoundDuration(Number(data.roundDuration));
+        setRestartSettings(prev => ({ ...prev, roundDuration: Number(data.roundDuration) }));
       }
       setCurrentLetter(data.letter);
       setRoundStatus('active');
@@ -226,11 +234,17 @@ export default function GameScreen() {
       setFinalWinners(data);
     };
 
-    const handleGameRestarted = () => {
+    const handleGameRestarted = (data) => {
       setRoundStatus('waiting');
       setCurrentRound(0);
       setCurrentLetter('?');
-      setTimeLeft(roundDuration || 15);
+      if (data && data.roundDuration) {
+        setRoundDuration(Number(data.roundDuration));
+        setRestartSettings(prev => ({ ...prev, roundDuration: Number(data.roundDuration) }));
+        setTimeLeft(Number(data.roundDuration));
+      } else {
+        setTimeLeft(roundDuration || 15);
+      }
       setResults(null);
       setFinalWinners(null);
       setInputs({ name: '', place: '', animal: '', thing: '' });
@@ -317,6 +331,7 @@ export default function GameScreen() {
   }, [navigate, isHost, roomId]);
 
   const handleStartRound = () => {
+    console.log(`[GAMESCREEN] Starting round, current roundDuration state: ${roundDuration}`);
     socket.emit('start-round', roomId, (response) => {
       if (!response.success) {
         console.error('Failed to start round:', response.error);
@@ -325,7 +340,7 @@ export default function GameScreen() {
   };
 
   const handleRestartGame = () => {
-    socket.emit('restart-game', { roomCode: roomId, playerId: localStorage.getItem('playerId'), totalRounds: restartSettings.totalRounds, roundDuration: restartSettings.roundDuration });
+    socket.emit('restart-game', { roomCode: roomId, playerId: localStorage.getItem('playerId'), totalRounds: Number(restartSettings.totalRounds), roundDuration: Number(restartSettings.roundDuration) });
     setShowRestartModal(false);
   };
 
@@ -357,8 +372,8 @@ export default function GameScreen() {
     socket.emit('finalize-play-again', {
       roomCode: roomId,
       playerId: localStorage.getItem('playerId'),
-      totalRounds: restartSettings.totalRounds,
-      roundDuration: restartSettings.roundDuration
+      totalRounds: Number(restartSettings.totalRounds),
+      roundDuration: Number(restartSettings.roundDuration)
     });
     setShowPlayAgainSettings(false);
   };
@@ -1122,17 +1137,44 @@ export default function GameScreen() {
 
               <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2">Round Duration</label>
               <select
-                value={restartSettings.roundDuration}
-                onChange={(e) => setRestartSettings(prev => ({ ...prev, roundDuration: Number(e.target.value) }))}
+                value={restartSettings.isCustom ? 'custom' : restartSettings.roundDuration}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === 'custom') {
+                    setRestartSettings(prev => ({ ...prev, isCustom: true, roundDuration: prev.customInputValue }));
+                  } else {
+                    setRestartSettings(prev => ({ ...prev, isCustom: false, roundDuration: Number(val) }));
+                  }
+                }}
                 className="w-full bg-[#150722] text-[var(--accent)] font-black text-xl text-center p-3 rounded-xl border-2 border-[var(--surface-border)] cursor-pointer outline-none"
               >
                 <option value={10}>10 Seconds</option>
                 <option value={15}>15 Seconds</option>
                 <option value={20}>20 Seconds</option>
+                <option value={25}>25 Seconds</option>
                 <option value={30}>30 Seconds</option>
                 <option value={45}>45 Seconds</option>
                 <option value={60}>60 Seconds</option>
+                <option value="custom">Custom...</option>
               </select>
+              {restartSettings.isCustom && (
+                <div className="mt-2">
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={restartSettings.customInputValue}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const v = raw || 5;
+                      const clamped = Math.min(120, Math.max(5, v));
+                      setRestartSettings(prev => ({ ...prev, customInputValue: clamped, roundDuration: clamped }));
+                    }}
+                    className="w-full bg-[#150722] text-[var(--accent)] font-black text-xl text-center p-3 rounded-xl border-2 border-[var(--secondary)] outline-none"
+                  />
+                  <p className="text-xs text-slate-400 text-center mt-1">5–120 seconds</p>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4">
@@ -1292,20 +1334,47 @@ export default function GameScreen() {
                      </div>
                   </div>
 
-                  <div>
+                   <div>
                     <label className="block text-sm font-bold text-[#ff007f] uppercase tracking-wider mb-2 text-center">Round Duration</label>
                     <select
-                      value={restartSettings.roundDuration}
-                      onChange={(e) => setRestartSettings(prev => ({ ...prev, roundDuration: Number(e.target.value) }))}
+                      value={restartSettings.isCustom ? 'custom' : restartSettings.roundDuration}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'custom') {
+                          setRestartSettings(prev => ({ ...prev, isCustom: true, roundDuration: prev.customInputValue }));
+                        } else {
+                          setRestartSettings(prev => ({ ...prev, isCustom: false, roundDuration: Number(val) }));
+                        }
+                      }}
                       className="w-full bg-[#0a0212] text-[var(--accent)] font-black text-2xl text-center p-4 rounded-xl border-2 border-[var(--surface-border)] cursor-pointer outline-none"
                     >
                       <option value={10}>10 Seconds</option>
                       <option value={15}>15 Seconds</option>
                       <option value={20}>20 Seconds</option>
+                      <option value={25}>25 Seconds</option>
                       <option value={30}>30 Seconds</option>
                       <option value={45}>45 Seconds</option>
                       <option value={60}>60 Seconds</option>
+                      <option value="custom">Custom...</option>
                     </select>
+                    {restartSettings.isCustom && (
+                      <div className="mt-2">
+                        <input
+                          type="number"
+                          min={5}
+                          max={120}
+                          value={restartSettings.customInputValue}
+                          onChange={(e) => {
+                            const raw = Number(e.target.value);
+                            const v = raw || 5;
+                            const clamped = Math.min(120, Math.max(5, v));
+                            setRestartSettings(prev => ({ ...prev, customInputValue: clamped, roundDuration: clamped }));
+                          }}
+                          className="w-full bg-[#0a0212] text-[var(--accent)] font-black text-2xl text-center p-4 rounded-xl border-2 border-[var(--secondary)] outline-none"
+                        />
+                        <p className="text-xs text-slate-400 text-center mt-1">5–120 seconds</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

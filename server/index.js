@@ -142,8 +142,10 @@ io.on('connection', (socket) => {
       opts = {};
     }
     const totalRounds = Math.min(Math.max(Number(opts.totalRounds) || 15, 1), 50);
-    const validDurations = [10, 15, 20, 30, 45, 60];
-    const roundDuration = validDurations.includes(Number(opts.roundDuration)) ? Number(opts.roundDuration) : 15;
+    const duration = Number(opts.roundDuration);
+    const roundDuration = (duration >= 5 && duration <= 120) ? duration : 15;
+    
+    console.log(`[CREATE-ROOM] Received roundDuration: ${opts.roundDuration} (type: ${typeof opts.roundDuration}), parsed: ${roundDuration}`);
     
     // Generate a simple 6-character room code
     const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -177,7 +179,7 @@ io.on('connection', (socket) => {
     
     // Return the room code to the host
     if (typeof cb === 'function') {
-      cb({ success: true, roomCode, totalRounds, playerId: hostPlayerId });
+      cb({ success: true, roomCode, totalRounds, roundDuration, playerId: hostPlayerId });
     }
     } catch (err) {
       logError('CREATE', 'Error creating room', err);
@@ -421,6 +423,7 @@ io.on('connection', (socket) => {
 
       room.roundStartTime = Date.now();
       let timeLeft = room.roundDuration || 15;
+      console.log(`[START-ROUND] room.roundDuration: ${room.roundDuration}, timeLeft starts at: ${timeLeft}`);
       
       io.to(roomCode).emit('timer-update', timeLeft);
 
@@ -869,9 +872,9 @@ io.on('connection', (socket) => {
           
           if (typeof data === 'object') {
             if (data.totalRounds) room.totalRounds = Math.min(Math.max(Number(data.totalRounds) || 15, 1), 50);
-            const validDurations = [10, 15, 20, 30, 45, 60];
-            if (data.roundDuration && validDurations.includes(Number(data.roundDuration))) {
-              room.roundDuration = Number(data.roundDuration);
+            const dur = Number(data.roundDuration);
+            if (data.roundDuration && dur >= 5 && dur <= 120) {
+              room.roundDuration = dur;
             }
           }
 
@@ -901,7 +904,7 @@ io.on('connection', (socket) => {
             room.validSubmissionsCount[p.playerId] = 0;
           });
 
-          io.to(roomCode).emit('game-restarted');
+          io.to(roomCode).emit('game-restarted', { roundDuration: room.roundDuration, totalRounds: room.totalRounds });
           logInfo(`ROOM:${roomCode}`, `Game manually restarted by host`);
         }
       }
@@ -987,9 +990,9 @@ io.on('connection', (socket) => {
           if (room.gracePeriodTimeout) { clearTimeout(room.gracePeriodTimeout); room.gracePeriodTimeout = null; }
 
           if (totalRounds) room.totalRounds = Math.min(Math.max(Number(totalRounds) || 15, 1), 50);
-          const validDurations = [10, 15, 20, 30, 45, 60];
-          if (roundDuration && validDurations.includes(Number(roundDuration))) {
-            room.roundDuration = Number(roundDuration);
+          const dur = Number(roundDuration);
+          if (roundDuration && dur >= 5 && dur <= 120) {
+            room.roundDuration = dur;
           }
 
           // Reset room state
@@ -1018,7 +1021,7 @@ io.on('connection', (socket) => {
             room.validSubmissionsCount[p.playerId] = 0;
           });
 
-          io.to(roomCode).emit('game-restarted');
+          io.to(roomCode).emit('game-restarted', { roundDuration: room.roundDuration, totalRounds: room.totalRounds });
           logInfo(`ROOM:${roomCode}`, `Play again finalized by host.`);
         }
       }
