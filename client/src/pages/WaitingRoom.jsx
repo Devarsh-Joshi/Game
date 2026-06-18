@@ -22,8 +22,15 @@ export default function WaitingRoom() {
       setIsSyncing(false);
     };
 
-    const handleGameStarted = () => {
-      navigate(`/game/${roomId}`, { state: { isHost: false } });
+    const handleGameStarted = (data) => {
+      const settings = data || {};
+      navigate(`/game/${roomId}`, {
+        state: {
+          isHost: false,
+          roundDuration: settings.roundDuration,
+          totalRounds: settings.totalRounds
+        }
+      });
     };
 
     const handleHostDisconnected = () => {

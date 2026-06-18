@@ -370,7 +370,7 @@ io.on('connection', (socket) => {
       const room = rooms.get(roomCode);
       if (room.hostId === socket.id) {
         room.status = 'playing';
-        io.to(roomCode).emit('game-started');
+        io.to(roomCode).emit('game-started', { roundDuration: room.roundDuration, totalRounds: room.totalRounds });
         if (typeof callback === 'function') callback({ success: true });
         logInfo(`ROOM:${roomCode}`, `Game started`);
       } else {

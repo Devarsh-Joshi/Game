@@ -12,9 +12,13 @@ export default function GameScreen() {
   const reconnectState = location.state?.reconnectState;
   const myPlayerId = localStorage.getItem('playerId');
 
-  // Read persisted session settings saved when the room was created or joined
-  const _savedDuration = Number(localStorage.getItem('roundDuration')) || 15;
-  const _savedTotalRounds = Number(localStorage.getItem('totalRounds')) || 15;
+  // Prefer settings passed via navigate state (from game-started event),
+  // fall back to reconnection state, then to localStorage, then to defaults.
+  // local state is unreliable if the game-started event didn't carry roundDuration.
+  const _navDuration = location.state?.roundDuration;
+  const _navTotalRounds = location.state?.totalRounds;
+  const _savedDuration = _navDuration || Number(localStorage.getItem('roundDuration')) || 15;
+  const _savedTotalRounds = _navTotalRounds || Number(localStorage.getItem('totalRounds')) || 15;
 
   const [roundStatus, setRoundStatus] = useState(reconnectState?.roundStatus || 'waiting'); // waiting, active, ended, results, finished
   const [currentRound, setCurrentRound] = useState(reconnectState?.currentRound || 0);
@@ -177,6 +181,16 @@ export default function GameScreen() {
       navigate('/');
     };
 
+    const handleGameStartedEvent = (data) => {
+      if (data && data.roundDuration) {
+        setRoundDuration(Number(data.roundDuration));
+        setRestartSettings(prev => ({ ...prev, roundDuration: Number(data.roundDuration) }));
+      }
+      if (data && data.totalRounds) {
+        setTotalRounds(Number(data.totalRounds));
+      }
+    };
+
     const handleRoundStarted = (data) => {
       console.log("Round Started Event Received", JSON.stringify(data));
       setCurrentRound(data.round);
@@ -291,6 +305,7 @@ export default function GameScreen() {
     };
 
     socket.on('connect', handleSocketConnect);
+    socket.on('game-started', handleGameStartedEvent);
     socket.on('game-ended', handleGameEnded);
     socket.on('host-disconnected', handleGameEnded);
     socket.on('round-started', handleRoundStarted);
@@ -311,6 +326,7 @@ export default function GameScreen() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       socket.off('connect', handleSocketConnect);
+      socket.off('game-started', handleGameStartedEvent);
       socket.off('game-ended', handleGameEnded);
       socket.off('host-disconnected', handleGameEnded);
       socket.off('round-started', handleRoundStarted);

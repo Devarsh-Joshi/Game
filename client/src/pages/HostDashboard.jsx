@@ -42,8 +42,15 @@ export default function HostDashboard() {
       setIsSyncing(false);
     };
 
-    const handleGameStarted = () => {
-      navigate(`/game/${roomId}`, { state: { isHost: true } });
+    const handleGameStarted = (data) => {
+      const settings = data || {};
+      navigate(`/game/${roomId}`, {
+        state: {
+          isHost: true,
+          roundDuration: settings.roundDuration,
+          totalRounds: settings.totalRounds
+        }
+      });
     };
 
     socket.on('players-updated', handlePlayerListUpdate);
